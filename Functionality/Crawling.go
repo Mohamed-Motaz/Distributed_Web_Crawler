@@ -1,18 +1,17 @@
-package main
+package crawling
 
 import (
-	"fmt"
 	"net/http"
+
 	"golang.org/x/net/html"
 )
 
+// func main(){
+// 	testUrl := "https://www.google.com/";
 
-func main(){
-	testUrl := "https://www.google.com/";
-
-	links, err := GetURLs(testUrl)
-	fmt.Printf("links %+v %+v \n", links, err)
-}
+// 	links, err := GetURLs(testUrl)
+// 	fmt.Printf("links %+v %+v \n", links, err)
+// }
 
 
 func GetURLs(url string) ([]string, error) {
@@ -38,7 +37,7 @@ func GetURLs(url string) ([]string, error) {
 			if token.Data == "a"{
 				for _, attr := range token.Attr{
 					if attr.Key == "href"{
-						if attr.Val != ""{
+						if linkIsValid(attr.Val) {
 							linksMap[attr.Val] = true;
 						}
 					}
@@ -47,7 +46,14 @@ func GetURLs(url string) ([]string, error) {
 		}
 	}
 
+}
 
+func linkIsValid(link string) bool {
+	_, err := http.Get(link)
+	if err != nil{
+		return false
+	}
+	return true
 }
 
 func convertMapToList(linksMap map[string]bool) []string{
