@@ -13,5 +13,6 @@ require (
 	github.com/jackc/pgx/v4 v4.13.0 // indirect
 	github.com/jackc/puddle v1.1.3 // indirect
 	golang.org/x/crypto v0.0.0-20210711020723-a769d52b0f97 // indirect
+	golang.org/x/net v0.0.0-20211020060615-d418f374d309 // indirect
 	golang.org/x/text v0.3.6 // indirect
 )
