@@ -2,33 +2,44 @@ package master
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"net/rpc"
 	"strconv"
 
-	crawling "github.com/mohamed247/Distributed_Web_Crawler/Functionality"
+	"github.com/google/uuid"
+
+	logger "github.com/mohamed247/Distributed_Web_Crawler/Logger"
 )
 type Master struct{
-
+	id string
+	workersAlive []bool
 }
 
 
 
-func MakeMaster() *Master{
+func MakeMaster() (*Master, error){
 	master := &Master{}
-	master.server()
+	guid, err := uuid.NewRandom()
+
+	if err != nil{
+		logger.LogError("Error generationg uuid: %v", err)
+		return master, err
+	}
+	
+	master.id = guid.String()
 
 	
+	
 
-	links, err := crawling.GetURLs("https://google.com")
-	fmt.Printf("%v %v", links ,err)
-
-	return master;
+	master.server()
+	return master, nil;
 
 }
 
+//
+// find an empty port between 8000 and 9000 to listen on
+//
 func generatePortNum() (int, *net.Listener, error){
 	for i := 8000; i <= 9000; i++{
 		listener, err := net.Listen("tcp", ":" + strconv.Itoa(i))
@@ -44,16 +55,28 @@ func generatePortNum() (int, *net.Listener, error){
 //
 // start a thread that listens for RPCs
 //
-func (master *Master) server() {
+func (master *Master) server() error{
 	rpc.Register(master)
 	rpc.HandleHTTP()
 	portNum, listener, err := generatePortNum()
 
 	if err != nil {
-		log.Fatal("listen error:", err)
+		logger.LogError("Listener error: %v", err)
+		return err
 	}
 
-	fmt.Printf("Serving on port num %v \n", portNum)
+	logger.LogInfo("Serving on port num %v \n", portNum)
 
 	go http.Serve(*listener, nil)
+
+	return nil;
 }
+
+
+// links, err := crawling.GetURLs("https://google.com")
+
+// 	if err != nil{
+// 		logger.LogError("Error: %v", err)
+// 	}
+
+// 	logger.LogInfo("Links: %v", links)
