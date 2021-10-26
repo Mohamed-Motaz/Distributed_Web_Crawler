@@ -32,6 +32,8 @@ func main(){
 type Worker struct {
 	Id string
 	masterPort string
+	currentJob bool   //currently working on a job
+	
 }
 
 
