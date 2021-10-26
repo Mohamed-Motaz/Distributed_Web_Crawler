@@ -1,12 +1,8 @@
 package main
 
 import (
-	"fmt"
-	"net"
-	"net/http"
 	"net/rpc"
 	"os"
-	"strconv"
 	"sync"
 
 	"github.com/google/uuid"
@@ -18,8 +14,8 @@ import (
 const localhost string = "127.0.0.1"
 
 func main(){
-	port :=  os.Args[1]
-	_, err := MakeWorker(localhost + ":" + port)
+	masterPort :=  os.Args[1]
+	_, err := MakeWorker(localhost + ":" + masterPort)
 
 	if err != nil{
 		logger.LogError(logger.CLUSTER, "Exiting becuase of error with worker creation: %v", err)
@@ -35,7 +31,7 @@ func main(){
 
 type Worker struct {
 	Id string
-	port string
+	masterPort string
 }
 
 
@@ -49,61 +45,31 @@ func MakeWorker(port string) (*Worker, error) {
 	}
 	worker := &Worker{
 		Id: guid.String(),
-		port: port,
+		masterPort: port,
 	}
-	worker.server(port)
-
+	worker.callMaster("Master.HandleGetTasks", &RPC.GetTaskArgs{}, &RPC.GetTaskReply{})
 	return worker, nil
 }
 
 
 
+func (worker *Worker) callMaster(rpcName string, args interface{}, reply interface{}) bool {
 
-//
-// RPC handlers
-//
+	client, err := rpc.DialHTTP("tcp", worker.masterPort)  //blocking
+	if err != nil{
+		logger.LogError(logger.WORKER, "Error dialing http: %v", err)
+		return false
+	}
+	defer client.Close()
 
-func (worker *Worker) HandleTasks(args *RPC.TaskArgs, reply *RPC.TaskReply) error {
-	logger.LogInfo(logger.WORKER, "Recieved a task from master %v", args)
-	return nil
-}
+	err = client.Call(rpcName, args, reply)
 
-
-//
-// start a thread that listens for RPCs
-//
-func (worker *Worker) server(port string) error{
-	rpc.Register(worker)
-	rpc.HandleHTTP()
-
-	
-	os.Remove(port)
-	listener, err := net.Listen("tcp", port)
-	
-	if err != nil {
-		logger.LogError(logger.WORKER, "Error while listening on socket: %v", err)
-		return err
+	if err != nil{
+		logger.LogError(logger.WORKER, "Unable to call master with RPC with error: %v", err)
+		return false
 	}
 
-	logger.LogInfo(logger.WORKER, "Listening on socket: %v", port)
-
-	go http.Serve(listener, nil)
-	return nil
+	return true
 }
 
-
-//
-// find an empty port between 8000 and 9000 to listen on
-//
-func generatePortNum() (int, *net.Listener, error){
-	for i := 8000; i <= 9000; i++{
-		listener, err := net.Listen("tcp", localhost + ":" + strconv.Itoa(i))
-		if err != nil{
-			continue
-		}
-		//successfully found a free port
-		return i, &listener, nil
-	}
-	return -1,nil, fmt.Errorf("unable to find an empty port")
-}
 

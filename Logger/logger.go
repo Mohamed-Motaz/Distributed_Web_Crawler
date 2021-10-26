@@ -14,17 +14,7 @@ const WORKER = 1
 const CLUSTER = 3
 
 func LogInfo(role int, format string, a ...interface{}){
-	
-	var additionalInfo string
-
-	if role == MASTER{
-		additionalInfo = "MASTER-> "
-	}else if role == WORKER{
-		additionalInfo = "WORKER-> "
-	}else if role == CLUSTER{
-		additionalInfo = "CLUSTER-> "
-	}
-
+	additionalInfo := determineRole(role)
 	additionalInfo += "INFO: " + strconv.Itoa(int(makeTimestamp())) + " -> "
 
 	if format[len(format) - 1] != '\n'{
@@ -37,16 +27,7 @@ func LogInfo(role int, format string, a ...interface{}){
 }
 
 func LogError(role int, format string, a ...interface{}){
-	var additionalInfo string
-
-	if role == MASTER{
-		additionalInfo = "MASTER-> "
-	}else if role == WORKER{
-		additionalInfo = "WORKER-> "
-	}else if role == CLUSTER{
-		additionalInfo = "CLUSTER-> "
-	}
-
+	additionalInfo := determineRole(role)
 	additionalInfo += "ERROR: " + strconv.Itoa(int(makeTimestamp())) + " -> "
 
 	if format[len(format) - 1] != '\n'{
@@ -61,4 +42,18 @@ func LogError(role int, format string, a ...interface{}){
 
 func makeTimestamp() int64 {
     return time.Now().UnixNano() / int64(time.Millisecond)
+}
+
+func determineRole(role int) string{
+
+	switch role{
+	case MASTER:
+		return "MASTER-> "
+	case WORKER:
+		return "WORKER-> "
+	case CLUSTER:
+		return "CLUSTER-> "
+	default:
+		return "UNKNOWN -> "
+	}
 }
