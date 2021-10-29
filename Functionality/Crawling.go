@@ -3,6 +3,7 @@ package crawling
 import (
 	"net/http"
 
+	logger "github.com/mohamed247/Distributed_Web_Crawler/Logger"
 	"golang.org/x/net/html"
 )
 
@@ -11,6 +12,7 @@ func GetURLsSlice(url string) ([]string, error) {
 
 	resp, err := http.Get(url)
 	if err != nil{
+		logger.LogError(logger.CRAWLING, "Error while getting the url %v", err)
 		return nil, err
 	}
 

@@ -12,7 +12,7 @@ const log = 0;
 const MASTER = 0
 const WORKER = 1
 const CLUSTER = 3
-
+const CRAWLING = 4
 func LogInfo(role int, format string, a ...interface{}){
 	additionalInfo := determineRole(role)
 	additionalInfo += "INFO: " + strconv.Itoa(int(makeTimestamp())) + " -> "
@@ -53,6 +53,8 @@ func determineRole(role int) string{
 		return "WORKER-> "
 	case CLUSTER:
 		return "CLUSTER-> "
+	case CRAWLING:
+		return "CRAWLING-> "
 	default:
 		return "UNKNOWN -> "
 	}

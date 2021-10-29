@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mohamed247/Distributed_Web_Crawler/Cluster/RPC"
+	crawling "github.com/mohamed247/Distributed_Web_Crawler/Functionality"
 	logger "github.com/mohamed247/Distributed_Web_Crawler/Logger"
 )
 
@@ -60,13 +61,15 @@ type Master struct{
 
 	workersTimers map[string]time.Time  //keep track of last time a task was issued
 
-	masterMu sync.Mutex
+	mu sync.Mutex
 }
 
 
 func MakeMaster(port string) (*Master, error){
 	guid, err := uuid.NewRandom()
-
+	crawling.GetURLsSlice(
+		"https://www.google.com/",
+	)
 	if err != nil{
 		logger.LogError(logger.MASTER, "Error generationg uuid: %v", err)
 		return nil, err
@@ -76,9 +79,13 @@ func MakeMaster(port string) (*Master, error){
 		id: guid.String(),
 		port: port,
 		jobNum: 0,
+		jobRequiredUrlsLen: -1,
+		currentJob: false,
+		URLsMap: make(map[string]bool),
 		URLsVisited: make(map[string]bool),
+		URLsTasks: make(map[string]int),
 		workersTimers: make(map[string]time.Time),
-		masterMu: sync.Mutex{},
+		mu: sync.Mutex{},
 	}
 
 	go master.server()
@@ -97,14 +104,18 @@ func MakeMaster(port string) (*Master, error){
 
 func (master *Master) HandleGetTasks(args *RPC.GetTaskArgs, reply *RPC.GetTaskReply) error {
 	logger.LogInfo(logger.MASTER, "A worker requested to be given a task %v", args)
+	reply.JobNum = -1
+	reply.URL = ""
 
-	if len(master.URLsMap) > master.jobRequiredUrlsLen{
+	master.mu.Lock()
+	defer master.mu.Unlock()
+
+	if len(master.URLsMap) > master.jobRequiredUrlsLen || !master.currentJob{
 		logger.LogInfo(logger.MASTER, 
 			"A worker requested to be given a task but we have already  " +
 			"finished the job, cur length is %v and required is %v",
 			len(master.URLsMap), master.jobRequiredUrlsLen )
-		reply.JobNum = -1
-		reply.URL = ""
+		
 		return nil
 
 	} 
@@ -125,15 +136,18 @@ func (master *Master) HandleGetTasks(args *RPC.GetTaskArgs, reply *RPC.GetTaskRe
 			return nil
 		}
 	}
-		
+	logger.LogInfo(logger.MASTER, "The worker was given no tasks as none are available %v", reply)
+
 	return nil
 }
 
 func (master *Master) HandleFinishedTasks(args *RPC.FinishedTaskArgs, reply *RPC.FinishedTaskReply) error {
-	logger.LogInfo(logger.MASTER, "A worker just finished this task %v", args)
+	logger.LogInfo(logger.MASTER, "A worker just finished this task: \n" +
+								  "JobNum: %v \nURL: %v \nURLsLen :%v", 
+									args.JobNum, args.URL, len(args.URLs))
 
-	reply.JobRecievedSuccessfully = true
-
+	master.mu.Lock()
+	defer master.mu.Unlock()
 
 	if len(master.URLsMap) > master.jobRequiredUrlsLen{
 		logger.LogInfo(logger.MASTER, 
@@ -181,8 +195,12 @@ func (master *Master) doCrawl(url string, urlsNum int) {
 		"Recieved a request to crawl this website %v and get %v links from it",
 		url, urlsNum)
 
+	master.mu.Lock()
+	defer master.mu.Unlock()
+
 	master.currentJob = true
 	master.URLsTasks[url] = TaskAvailable  //set task as available to be given to servers
+	master.URLsMap[url] = true
 	master.jobNum++
 	master.jobRequiredUrlsLen = urlsNum
 }
@@ -214,15 +232,23 @@ func (master *Master) server() error{
 // start a thread that keeps an eye on if any tasks are late
 //
 func (master *Master) checker() {
-	for k,_ := range master.URLsTasks{
-		if master.URLsTasks[k] == TaskAssigned{
-			if time.Since(master.workersTimers[k]) > time.Second * 10 {
-				//a server hasnt replied for 10 seconds
-				master.URLsTasks[k] = TaskAvailable   //set his task to be available
+
+	for {	
+		master.mu.Lock()
+		for k,_ := range master.URLsTasks{
+			if master.URLsTasks[k] == TaskAssigned{
+				if time.Since(master.workersTimers[k]) > time.Second * 10 {
+					//a server hasnt replied for 10 seconds
+					master.URLsTasks[k] = TaskAvailable   //set his task to be available
+				}
 			}
-		}
-		
+			
+		}		
+		master.mu.Unlock()
+
+		time.Sleep(time.Second)
 	}
+	
 }
 
 

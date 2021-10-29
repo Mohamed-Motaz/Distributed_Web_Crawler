@@ -17,9 +17,7 @@ type FinishedTaskArgs struct{
 	URLs []string
 }
 
-type FinishedTaskReply struct{
-	JobRecievedSuccessfully bool
-}
+type FinishedTaskReply struct{}
 
 
 
