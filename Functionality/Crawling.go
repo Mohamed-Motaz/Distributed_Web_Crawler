@@ -4,6 +4,8 @@ import (
 	"net/http"
 
 	logger "github.com/mohamed247/Distributed_Web_Crawler/Logger"
+	utils "github.com/mohamed247/Distributed_Web_Crawler/Utils"
+
 	"golang.org/x/net/html"
 )
 
@@ -25,14 +27,14 @@ func GetURLsSlice(url string) ([]string, error) {
 		
 		switch tokenType{
 		case html.ErrorToken:
-			return convertMapToList(linksMap), nil
+			return utils.ConvertMapToList(linksMap), nil
 
 		case html.StartTagToken, html.EndTagToken:
 			token := tokens.Token()
 			if token.Data == "a"{
 				for _, attr := range token.Attr{
 					if attr.Key == "href"{
-						if linkIsValid(attr.Val) {
+						if utils.LinkIsValid(attr.Val) {
 							linksMap[attr.Val] = true;
 						}
 					}
@@ -67,7 +69,7 @@ func GetURLsMap(url string) (map[string]bool, error) {
 			if token.Data == "a"{
 				for _, attr := range token.Attr{
 					if attr.Key == "href"{
-						if linkIsValid(attr.Val) {
+						if utils.LinkIsValid(attr.Val) {
 							linksMap[attr.Val] = true;
 						}
 					}
@@ -78,17 +80,3 @@ func GetURLsMap(url string) (map[string]bool, error) {
 
 }
 
-func linkIsValid(link string) bool {
-	_, err := http.Get(link)
-	return err == nil
-}
-
-func convertMapToList(linksMap map[string]bool) []string{
-	var links []string
-
-	for k := range linksMap {
-		links = append(links, k)
-	}
-
-	return links
-}

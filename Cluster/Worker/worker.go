@@ -34,10 +34,12 @@ func main(){
 type Worker struct {
 	Id string
 	masterPort string
+
 	currentJob bool   //currently working on a job
 	currentJobNum int //num of currentJob, -1 if none
 	currentURL string //current string to crawl
 	currentFinishedURLs []string //urls finished crawling and not yet sent to master
+	jobFinishedTime time.Time
 
 	mu sync.Mutex
 }
@@ -66,23 +68,26 @@ func MakeWorker(port string) (*Worker, error) {
 }
 
 func (worker *Worker) askForJob(){
+	worker.mu.Lock()
+
 	logger.LogInfo(logger.WORKER, "Worker asking for a job from master")
 	reply := &RPC.GetTaskReply{}
 	ok := worker.callMaster("Master.HandleGetTasks", &RPC.GetTaskArgs{}, reply)
 	
 	if !ok {
 		logger.LogError(logger.WORKER, "Error while sending handleGetTasks to master")
+		worker.mu.Unlock()
 		return
 	}
 	logger.LogInfo(logger.WORKER, "Worker recieved this reponse after asking for a job %v", reply)
 
-	worker.mu.Lock()
 
 	if reply.JobNum == -1 {
-		worker.mu.Unlock()
+		worker.mu.Lock()
 		worker.currentJob = false
 		worker.currentJobNum = -1
 		logger.LogInfo(logger.WORKER, "Worker didnt recieve a job from master as there are currently none available")
+		worker.mu.Unlock()
 		return
 	}
 
@@ -105,12 +110,18 @@ func (worker *Worker) doTask(URL string){
 	defer worker.mu.Unlock()
 	if err != nil {
 		//cant do current job, so discard it
+
+		logger.LogError(logger.WORKER, "Can't crawl this URL %v, discarding it....", URL)
 		worker.resetWorkerJobStatus()
 	}else{
 		//say that u finished the job
+		logger.LogInfo(logger.WORKER, "Worker finished task with this url " +
+		"%v and jobNum %v", URL, worker.currentJobNum)
 
 		worker.currentFinishedURLs = links   //set those to be finished to send them again if u cant
-		
+		worker.jobFinishedTime = time.Now()
+
+
 		args := &RPC.FinishedTaskArgs{
 			URL: URL,
 			JobNum: worker.currentJobNum,
@@ -121,11 +132,13 @@ func (worker *Worker) doTask(URL string){
 
 		if !ok{
 			logger.LogError(logger.WORKER, "Error while sending handleFinishedTasks to master")
+			//this case is handled by the askForJobLooper thread
 			return   //unable to send the rpcs
 		}
 
 		//successfully sent jobs to master and finished tasks, now mark currentJob as false
-
+		logger.LogInfo(logger.WORKER, "Worker successfully sent finished task with this url " +
+									"%v and jobNum %v to master", args.URL, args.JobNum)
 		worker.resetWorkerJobStatus()
 	}
 }
@@ -162,10 +175,21 @@ func (worker *Worker) askForJobLooper(){
 			worker.mu.Unlock()
 			worker.askForJob()
 		}else{
-			worker.mu.Unlock()
 			//there is a currentJob running at the moment
 			//need to check for the corner case where I finished a job and unfortunately wasnt able
 			//to send it or discard after set amount of time
+
+			if len(worker.currentFinishedURLs) > 0{
+				//found our corner case
+				if time.Since(worker.jobFinishedTime) > 10 { //have been holding on to the job for over 10 seconds
+					//discard it
+					logger.LogError(logger.WORKER, "Unable to send job with URL %v and jobNum %v for over 10 seconds",
+									worker.currentURL, worker.currentJobNum)
+					worker.resetWorkerJobStatus()
+				}
+			}
+			worker.mu.Unlock()
+
 		}
 
 		time.Sleep(time.Second)
@@ -174,7 +198,7 @@ func (worker *Worker) askForJobLooper(){
 
 
 func (worker *Worker) callMaster(rpcName string, args interface{}, reply interface{}) bool {
-
+	time.Sleep(time.Second)
 	client, err := rpc.DialHTTP("tcp", worker.masterPort)  //blocking
 	if err != nil{
 		logger.LogError(logger.WORKER, "Error dialing http: %v", err)

@@ -13,8 +13,8 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/mohamed247/Distributed_Web_Crawler/Cluster/RPC"
-	crawling "github.com/mohamed247/Distributed_Web_Crawler/Functionality"
 	logger "github.com/mohamed247/Distributed_Web_Crawler/Logger"
+	utils "github.com/mohamed247/Distributed_Web_Crawler/Utils"
 )
 
 const localhost string = "127.0.0.1"
@@ -33,7 +33,11 @@ func main(){
 
 	//later on, will be using rabbit mq
 	testUrl := "https://www.google.com/"
-	websitesNum := 1000
+	websitesNum := 10
+	master.doCrawl(testUrl, websitesNum)
+
+	testUrl = "https://www.youtube.com/"
+	websitesNum = 10
 	master.doCrawl(testUrl, websitesNum)
 
 	wg := sync.WaitGroup{}
@@ -55,6 +59,7 @@ type Master struct{
 	jobNum int       //job number to keep track of current job
 	jobRequiredUrlsLen int
 	currentJob bool  //whether or not I am currently executing a job
+	currentURL string   //currentURL job to crawl
 	URLsMap map[string]bool     //urls gotten so far
 	URLsVisited map[string]bool //map of whether a url has been visited or not    
 	URLsTasks map[string]int //map of whether a url task has been done, assigned, or is available
@@ -67,9 +72,6 @@ type Master struct{
 
 func MakeMaster(port string) (*Master, error){
 	guid, err := uuid.NewRandom()
-	crawling.GetURLsSlice(
-		"https://www.google.com/",
-	)
 	if err != nil{
 		logger.LogError(logger.MASTER, "Error generationg uuid: %v", err)
 		return nil, err
@@ -81,6 +83,7 @@ func MakeMaster(port string) (*Master, error){
 		jobNum: 0,
 		jobRequiredUrlsLen: -1,
 		currentJob: false,
+		currentURL: "",
 		URLsMap: make(map[string]bool),
 		URLsVisited: make(map[string]bool),
 		URLsTasks: make(map[string]int),
@@ -89,7 +92,8 @@ func MakeMaster(port string) (*Master, error){
 	}
 
 	go master.server()
-	go master.checker()
+	go master.checkLateTasks()
+	//go master.debug()
 
 
 	return master, nil;
@@ -123,10 +127,9 @@ func (master *Master) HandleGetTasks(args *RPC.GetTaskArgs, reply *RPC.GetTaskRe
 	//the reason behind looping on links from the beginning every time is
 	//so since some of the previous tasks given out may have not been actually done
 
-	for k, _ := range master.URLsMap {				
+	for k, v := range master.URLsTasks {				
 		//a task is indeed available to distribute
-
-		if master.URLsTasks[k] == TaskAvailable{
+		if v == TaskAvailable{
 			//send this job and mark it as assigned
 			master.URLsTasks[k] = TaskAssigned
 			master.workersTimers[k] = time.Now()
@@ -166,20 +169,24 @@ func (master *Master) HandleFinishedTasks(args *RPC.FinishedTaskArgs, reply *RPC
 	}
 
 
+	logger.LogInfo(logger.MASTER, "Current URLsMap len before checking worker's respose is %v",len(master.URLsMap))
 
 	//need to check if url already visited
 	if (master.URLsVisited[args.URL]){
 		//already finished, do nothing
-		logger.LogInfo(logger.MASTER, "Worker has finished this task %v which was already assigned to another server", args)
+		logger.LogInfo(logger.MASTER, "Worker has finished this task with jobNum %v and URL %v " +
+							"which was already assigned to another server", args.JobNum, args.URL)
 	}else{
 		master.URLsVisited[args.URL] = true; //assign the page as visited
-		
+		master.URLsTasks[args.URL] = TaskDone //set the task as done
+
 		//add all urls to the URLsMap and set their tasks as available
 		for _, v := range args.URLs{
 			master.URLsMap[v] = true
 			master.URLsTasks[v] = TaskAvailable
 		}
 	}
+	logger.LogInfo(logger.MASTER, "Current URLsMap len after checking worker's respose is %v",len(master.URLsMap))
 
 	return nil
 }
@@ -198,11 +205,34 @@ func (master *Master) doCrawl(url string, urlsNum int) {
 	master.mu.Lock()
 	defer master.mu.Unlock()
 
+	master.resetMasterJobStatus()
+
+	// master.URLsTasks["https://www.google.com/"] = TaskAvailable  //set task as available to be given to servers
+	// master.URLsTasks["https://www.youtube.com/"] = TaskAvailable  //set task as available to be given to servers
+	// master.URLsTasks["https://www.facebook.com/"] = TaskAvailable  //set task as available to be given to servers
+
+
+
+	master.currentURL = url
 	master.currentJob = true
 	master.URLsTasks[url] = TaskAvailable  //set task as available to be given to servers
 	master.URLsMap[url] = true
 	master.jobNum++
 	master.jobRequiredUrlsLen = urlsNum
+}
+
+//
+// clear all data from previous crawl and get ready for new one
+// hold lock
+//
+func (master *Master) resetMasterJobStatus(){
+	master.jobRequiredUrlsLen = -1
+	master.currentJob = false
+	master.URLsMap = make(map[string]bool)
+	master.URLsVisited = make(map[string]bool)
+	master.URLsTasks = make(map[string]int)
+	master.workersTimers = make(map[string]time.Time)
+	master.currentURL = ""
 }
 
 
@@ -231,14 +261,15 @@ func (master *Master) server() error{
 //
 // start a thread that keeps an eye on if any tasks are late
 //
-func (master *Master) checker() {
+func (master *Master) checkLateTasks() {
 
 	for {	
 		master.mu.Lock()
 		for k,_ := range master.URLsTasks{
 			if master.URLsTasks[k] == TaskAssigned{
-				if time.Since(master.workersTimers[k]) > time.Second * 10 {
-					//a server hasnt replied for 10 seconds
+				if time.Since(master.workersTimers[k]) > time.Second * 20 {
+					logger.LogError(logger.MASTER, "Found a server that was asleep with this url %v", k)
+					//a server hasnt replied for 20 seconds
 					master.URLsTasks[k] = TaskAvailable   //set his task to be available
 				}
 			}
@@ -249,6 +280,48 @@ func (master *Master) checker() {
 		time.Sleep(time.Second)
 	}
 	
+}
+
+//
+// start a thread that checks if currentJob is done
+//
+func (master *Master) checkJobDone() {
+
+	for {	
+		master.mu.Lock()
+		if len(master.URLsMap) > master.jobRequiredUrlsLen{
+			//job is finished
+			//now send it over rabbit mq
+			logger.LogInfo(logger.MASTER, "Done with job with url %v and jobNum %v", 
+			master.currentURL, master.jobNum)
+			URLsList := utils.ConvertMapToList(master.URLsMap)
+			logger.LogInfo(logger.MASTER, "Here is the old data len %v %+v", len(URLsList), URLsList)
+
+			utils.ResizeSlice(URLsList, master.jobRequiredUrlsLen)
+
+			logger.LogInfo(logger.MASTER, "Here is the data len %v %+v", len(URLsList), URLsList)
+			master.resetMasterJobStatus()
+		}
+
+
+		master.mu.Unlock()
+
+		time.Sleep(time.Second)
+	}
+	
+}
+
+func (master *Master) debug(){
+	for {
+			master.mu.Lock()
+			logger.LogInfo(logger.MASTER, "This is the map \n")
+			logger.LogInfo(logger.MASTER, "URLsTasks: \n %+v \n", master.URLsTasks)
+			logger.LogInfo(logger.MASTER, "URLsMap: \n %+v \n", master.URLsMap)
+			logger.LogInfo(logger.MASTER, "URLsVisited: \n %+v \n\n\n", master.URLsVisited)
+			master.mu.Unlock()
+			time.Sleep(time.Second * 2)
+	}
+
 }
 
 

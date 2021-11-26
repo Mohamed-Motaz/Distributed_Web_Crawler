@@ -13,6 +13,8 @@ const MASTER = 0
 const WORKER = 1
 const CLUSTER = 3
 const CRAWLING = 4
+const DATABASE = 5
+
 func LogInfo(role int, format string, a ...interface{}){
 	additionalInfo := determineRole(role)
 	additionalInfo += "INFO: " + strconv.Itoa(int(makeTimestamp())) + " -> "
