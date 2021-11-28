@@ -11,3 +11,6 @@ brew install postgresql
 
 
  brew services start postgres
+
+
+to start rabbitmq, docker run --name rabbitmq-container -p 5672:5672 rabbitmq
