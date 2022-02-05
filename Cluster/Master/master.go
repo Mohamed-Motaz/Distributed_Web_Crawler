@@ -33,12 +33,12 @@ func main(){
 
 	//later on, will be using rabbit mq
 	testUrl := "https://www.google.com/"
-	websitesNum := 10
+	websitesNum := 2
 	master.doCrawl(testUrl, websitesNum)
 
-	testUrl = "https://www.youtube.com/"
-	websitesNum = 10
-	master.doCrawl(testUrl, websitesNum)
+	// testUrl = "https://www.youtube.com/"
+	// websitesNum = 2
+	// master.doCrawl(testUrl, websitesNum)
 
 	wg := sync.WaitGroup{}
 	wg.Add(1)
@@ -57,14 +57,16 @@ type Master struct{
 	port string
 
 	jobNum int       //job number to keep track of current job
-	jobRequiredUrlsLen int
+	jobRequiredDepth int   //required depth to traverse
+						   //min is 1, in which case I just crawl a single page and return the results
+
 	currentJob bool  //whether or not I am currently executing a job
 	currentURL string   //currentURL job to crawl
-	URLsMap map[string]bool     //urls gotten so far
-	URLsVisited map[string]bool //map of whether a url has been visited or not    
-	URLsTasks map[string]int //map of whether a url task has been done, assigned, or is available
+	currentDepth int //currentDepth, should not exceed jobRequiredDepth
 
-	workersTimers map[string]time.Time  //keep track of last time a task was issued
+	URLsTasks []map[string]int //slice -> for each depth, map of whether a url task has been done, assigned, or is available
+
+	workersTimers []map[string]time.Time  //keep track of last time a task was issued
 
 	mu sync.Mutex
 }
@@ -81,18 +83,18 @@ func MakeMaster(port string) (*Master, error){
 		id: guid.String(),
 		port: port,
 		jobNum: 0,
-		jobRequiredUrlsLen: -1,
+		jobRequiredDepth: 0,
 		currentJob: false,
 		currentURL: "",
-		URLsMap: make(map[string]bool),
-		URLsVisited: make(map[string]bool),
-		URLsTasks: make(map[string]int),
-		workersTimers: make(map[string]time.Time),
+		currentDepth: 0,
+		URLsTasks: make([]map[string]int, 0),
+		workersTimers: make([]map[string]time.Time, 0),
 		mu: sync.Mutex{},
 	}
 
 	go master.server()
 	go master.checkLateTasks()
+	go master.checkJobDone()
 	//go master.debug()
 
 
@@ -114,32 +116,22 @@ func (master *Master) HandleGetTasks(args *RPC.GetTaskArgs, reply *RPC.GetTaskRe
 	master.mu.Lock()
 	defer master.mu.Unlock()
 
-	if len(master.URLsMap) > master.jobRequiredUrlsLen || !master.currentJob{
+	if !master.currentJob{
 		logger.LogInfo(logger.MASTER, 
-			"A worker requested to be given a task but we have already  " +
-			"finished the job, cur length is %v and required is %v",
-			len(master.URLsMap), master.jobRequiredUrlsLen )
-		
+			"A worker requested to be given a task but we have no jobs at the moment")
 		return nil
-
 	} 
 
-	//the reason behind looping on links from the beginning every time is
-	//so since some of the previous tasks given out may have not been actually done
+	if master.currentDepth >= master.jobRequiredDepth{
+		logger.LogInfo(logger.MASTER, 
+			"A worker requested to be given a task but we have already  " +
+			"finished the job, cur depth is %v and required is %v",
+			master.currentDepth, master.jobRequiredDepth )
+		
+		return nil
+	} 
 
-	for k, v := range master.URLsTasks {				
-		//a task is indeed available to distribute
-		if v == TaskAvailable{
-			//send this job and mark it as assigned
-			master.URLsTasks[k] = TaskAssigned
-			master.workersTimers[k] = time.Now()
-			reply.URL = k
-			reply.JobNum = master.jobNum
-			logger.LogInfo(logger.MASTER, "The worker was given this task %v", reply)
-			return nil
-		}
-	}
-	logger.LogInfo(logger.MASTER, "The worker was given no tasks as none are available %v", reply)
+	master.checkJobAvailable(reply)
 
 	return nil
 }
@@ -152,41 +144,35 @@ func (master *Master) HandleFinishedTasks(args *RPC.FinishedTaskArgs, reply *RPC
 	master.mu.Lock()
 	defer master.mu.Unlock()
 
-	if len(master.URLsMap) > master.jobRequiredUrlsLen{
+	if master.currentDepth >= master.jobRequiredDepth{
 		logger.LogInfo(logger.MASTER, 
 			"A worker has finished a task but we have already  " +
-			"finished the job, cur length is %v and required is %v",
-			len(master.URLsMap), master.jobRequiredUrlsLen )
+			"finished the job, cur depth is %v and required is %v",
+			master.currentDepth, master.jobRequiredDepth )
 		return nil
 	} 
 
 	if !master.currentJob {
 		logger.LogInfo(logger.MASTER, 
-			"A worker requested to be given a task for job num %v but the hob is already finished and we " +
-			"have started another on job num %v",
-			args.JobNum, master.currentJob )
+			"A worker finished a late task for job num %v but the job is already finished",
+			args.JobNum)
 		return nil
 	}
 
 
-	logger.LogInfo(logger.MASTER, "Current URLsMap len before checking worker's respose is %v",len(master.URLsMap))
+	//if not already visited, then can set it as done
+	if (!master.isUrlVisited(args)){
+		master.URLsTasks[master.currentDepth][args.URL] = TaskDone //set the task as done
 
-	//need to check if url already visited
-	if (master.URLsVisited[args.URL]){
-		//already finished, do nothing
-		logger.LogInfo(logger.MASTER, "Worker has finished this task with jobNum %v and URL %v " +
-							"which was already assigned to another server", args.JobNum, args.URL)
-	}else{
-		master.URLsVisited[args.URL] = true; //assign the page as visited
-		master.URLsTasks[args.URL] = TaskDone //set the task as done
-
-		//add all urls to the URLsMap and set their tasks as available
-		for _, v := range args.URLs{
-			master.URLsMap[v] = true
-			master.URLsTasks[v] = TaskAvailable
+		if master.currentDepth + 1 < master.jobRequiredDepth{
+			//add all urls to the URLsTasks next depth and set their tasks as available
+			for _, v := range args.URLs{
+				master.URLsTasks[master.currentDepth + 1][v] = TaskAvailable
+			}
 		}
+		
 	}
-	logger.LogInfo(logger.MASTER, "Current URLsMap len after checking worker's respose is %v",len(master.URLsMap))
+	logger.LogInfo(logger.MASTER, "Current URLsTasks len after checking worker's respose is %v",len(master.URLsTasks))
 
 	return nil
 }
@@ -195,17 +181,17 @@ func (master *Master) HandleFinishedTasks(args *RPC.FinishedTaskArgs, reply *RPC
 
 
 //in the future, will take the work from rabbitmq
-func (master *Master) doCrawl(url string, urlsNum int) {
+func (master *Master) doCrawl(url string, depth int) {
 	//TODO clear up all the data from the previous crawl
 
 	logger.LogInfo(logger.MASTER, 
-		"Recieved a request to crawl this website %v and get %v links from it",
-		url, urlsNum)
+		"Recieved a request to crawl this website %v with a depth of %v",
+		url, depth)
 
 	master.mu.Lock()
 	defer master.mu.Unlock()
 
-	master.resetMasterJobStatus()
+	master.resetMasterJobStatus(depth)
 
 	// master.URLsTasks["https://www.google.com/"] = TaskAvailable  //set task as available to be given to servers
 	// master.URLsTasks["https://www.youtube.com/"] = TaskAvailable  //set task as available to be given to servers
@@ -215,24 +201,33 @@ func (master *Master) doCrawl(url string, urlsNum int) {
 
 	master.currentURL = url
 	master.currentJob = true
-	master.URLsTasks[url] = TaskAvailable  //set task as available to be given to servers
-	master.URLsMap[url] = true
+	master.currentDepth = 0
+
 	master.jobNum++
-	master.jobRequiredUrlsLen = urlsNum
+	master.jobRequiredDepth = depth
+
+	master.URLsTasks[0][url] = TaskAvailable  //set task as available to be given to servers
+	
 }
 
 //
 // clear all data from previous crawl and get ready for new one
-// hold lock
+// hold lock --
 //
-func (master *Master) resetMasterJobStatus(){
-	master.jobRequiredUrlsLen = -1
+func (master *Master) resetMasterJobStatus(depth int){
+	master.jobRequiredDepth = 0
+
 	master.currentJob = false
-	master.URLsMap = make(map[string]bool)
-	master.URLsVisited = make(map[string]bool)
-	master.URLsTasks = make(map[string]int)
-	master.workersTimers = make(map[string]time.Time)
 	master.currentURL = ""
+	master.currentDepth = 0
+
+	master.URLsTasks = make([]map[string]int, depth)
+	master.workersTimers = make([]map[string]time.Time, depth)
+
+	for i := 0; i < depth; i++{
+		master.URLsTasks[i] = make(map[string]int)
+		master.workersTimers[i] = make(map[string]time.Time)
+	}
 }
 
 
@@ -265,12 +260,19 @@ func (master *Master) checkLateTasks() {
 
 	for {	
 		master.mu.Lock()
-		for k,_ := range master.URLsTasks{
-			if master.URLsTasks[k] == TaskAssigned{
-				if time.Since(master.workersTimers[k]) > time.Second * 20 {
+
+		if (!master.currentJob || master.currentDepth >= master.jobRequiredDepth){
+			master.mu.Unlock()
+			time.Sleep(time.Second)
+			continue
+		}
+
+		for k,v := range master.URLsTasks[master.currentDepth]{
+			if v == TaskAssigned{
+				if time.Since(master.workersTimers[master.currentDepth][k]) > time.Second * 20 {
 					logger.LogError(logger.MASTER, "Found a server that was asleep with this url %v", k)
 					//a server hasnt replied for 20 seconds
-					master.URLsTasks[k] = TaskAvailable   //set his task to be available
+					master.URLsTasks[master.currentDepth][k] = TaskAvailable   //set his task to be available
 				}
 			}
 			
@@ -283,29 +285,77 @@ func (master *Master) checkLateTasks() {
 }
 
 //
+//hold lock
+//
+func (master *Master) isUrlVisited(args *RPC.FinishedTaskArgs) bool{
+	//need to check if url already visited
+	for i := 0; i <= master.currentDepth; i++{
+		if (master.URLsTasks[i][args.URL] == TaskDone){
+			//already finished, do nothing
+			logger.LogInfo(logger.MASTER, "Worker has finished this task with jobNum %v and URL %v " +
+								"which was already finished", args.JobNum, args.URL)
+			return true
+		}	
+	}
+	return false
+}
+
+//
+//hold lock --
+//check if job is available or not
+//if not, increment current depth only after making sure 
+//all elements in the current depth are finished
+//
+func (master *Master) checkJobAvailable(reply *RPC.GetTaskReply){
+	if master.currentDepth >= master.jobRequiredDepth{
+		logger.LogInfo(logger.MASTER, "The worker was given no tasks as none are available %v", reply)
+		return
+	} 
+
+	currentDepthFinished := true
+	for url, jobStatus := range master.URLsTasks[master.currentDepth] {			
+		if jobStatus != TaskDone{
+			currentDepthFinished = false
+		}	
+		if jobStatus == TaskAvailable{
+			//send this job and mark it as assigned
+			master.URLsTasks[master.currentDepth][url] = TaskAssigned
+			master.workersTimers[master.currentDepth][url] = time.Now()
+			reply.URL = url
+			reply.JobNum = master.jobNum
+			logger.LogInfo(logger.MASTER, "The worker was given this task %v", reply)
+			return
+		}
+	}
+
+	//no job found, can try to move on to the next depth
+	if currentDepthFinished{
+		master.currentDepth++
+		master.checkJobAvailable(reply)
+		return
+	}
+}
+
+//
 // start a thread that checks if currentJob is done
 //
 func (master *Master) checkJobDone() {
 
 	for {	
 		master.mu.Lock()
-		if len(master.URLsMap) > master.jobRequiredUrlsLen{
+		if master.currentJob && master.currentDepth >= master.jobRequiredDepth{
 			//job is finished
 			//now send it over rabbit mq
-			logger.LogInfo(logger.MASTER, "Done with job with url %v and jobNum %v", 
-			master.currentURL, master.jobNum)
-			URLsList := utils.ConvertMapToList(master.URLsMap)
+			logger.LogInfo(logger.MASTER, "Done with job with url %v, depth %v, and jobNum %v", 
+			master.currentURL, master.jobRequiredDepth, master.jobNum)
+			URLsList := utils.ConvertMapArrayToList(master.URLsTasks)
 			logger.LogInfo(logger.MASTER, "Here is the old data len %v %+v", len(URLsList), URLsList)
 
-			utils.ResizeSlice(URLsList, master.jobRequiredUrlsLen)
-
 			logger.LogInfo(logger.MASTER, "Here is the data len %v %+v", len(URLsList), URLsList)
-			master.resetMasterJobStatus()
+			master.resetMasterJobStatus(0)
 		}
 
-
 		master.mu.Unlock()
-
 		time.Sleep(time.Second)
 	}
 	
@@ -313,11 +363,10 @@ func (master *Master) checkJobDone() {
 
 func (master *Master) debug(){
 	for {
-			master.mu.Lock()
+		
 			logger.LogInfo(logger.MASTER, "This is the map \n")
+			master.mu.Lock()
 			logger.LogInfo(logger.MASTER, "URLsTasks: \n %+v \n", master.URLsTasks)
-			logger.LogInfo(logger.MASTER, "URLsMap: \n %+v \n", master.URLsMap)
-			logger.LogInfo(logger.MASTER, "URLsVisited: \n %+v \n\n\n", master.URLsVisited)
 			master.mu.Unlock()
 			time.Sleep(time.Second * 2)
 	}

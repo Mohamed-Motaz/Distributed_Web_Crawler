@@ -17,6 +17,20 @@ func ConvertMapToList(linksMap map[string]bool) []string{
 	return links
 }
 
+func ConvertMapArrayToList(linksMap []map[string]int) []string{
+	var links []string
+
+	//for each depth
+	for _, mp := range linksMap {
+		//for each element in said depth
+		for k := range mp{
+			links = append(links, k)
+		}
+	}
+
+	return links
+}
+
 //
 // resize by reference
 //
