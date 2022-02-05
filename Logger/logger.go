@@ -15,32 +15,46 @@ const CLUSTER = 3
 const CRAWLING = 4
 const DATABASE = 5
 
-func LogInfo(role int, format string, a ...interface{}){
-	additionalInfo := determineRole(role)
-	additionalInfo += "INFO: " + strconv.Itoa(int(makeTimestamp())) + " -> "
+const LOG_INFO = 0
+const LOG_ERROR = 1
 
-	if format[len(format) - 1] != '\n'{
-		format += "\n"
-	}
+func LogInfo(role int, format string, a ...interface{}){
+	format = beautifyLogs(role, format, LOG_INFO)
 
 	if debug == 1{
-		fmt.Printf(additionalInfo + format, a...)
+		fmt.Printf(format, a...)
 	}
 }
 
 func LogError(role int, format string, a ...interface{}){
+	format = beautifyLogs(role, format, LOG_ERROR)
+
+	if debug == 1{
+		fmt.Printf(format, a...)
+	}
+}
+
+func beautifyLogs(role int, format string, logType int) string {
 	additionalInfo := determineRole(role)
-	additionalInfo += "ERROR: " + strconv.Itoa(int(makeTimestamp())) + " -> "
+
+	switch logType {
+	case LOG_INFO:
+		additionalInfo = Green + additionalInfo + "INFO: "
+	case LOG_ERROR:
+		additionalInfo = Red + additionalInfo + "ERROR: "
+	default:
+		additionalInfo = Blue + additionalInfo + "DEFAULT: "
+	}
+	
+	additionalInfo += strconv.Itoa(int(makeTimestamp())) + " -> "
 
 	if format[len(format) - 1] != '\n'{
 		format += "\n"
 	}
+	format += "\n"
 
-	if debug == 1{
-		fmt.Printf(additionalInfo + format, a...)
-	}
+	return additionalInfo + format
 }
-
 
 func makeTimestamp() int64 {
     return time.Now().UnixNano() / int64(time.Millisecond)
