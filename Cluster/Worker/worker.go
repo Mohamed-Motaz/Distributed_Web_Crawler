@@ -1,6 +1,7 @@
 package main
 
 import (
+	"math/rand"
 	"net/rpc"
 	"os"
 	"sync"
@@ -41,6 +42,8 @@ type Worker struct {
 	currentFinishedURLs []string //urls finished crawling and not yet sent to master
 	jobFinishedTime time.Time
 
+	exponentialBackOff []int
+
 	mu sync.Mutex
 }
 
@@ -60,6 +63,7 @@ func MakeWorker(port string) (*Worker, error) {
 		currentJobNum: -1,
 		currentURL: "",
 		currentFinishedURLs: make([]string, 0),
+		exponentialBackOff: make([]int, 0),
 		mu: sync.Mutex{},
 	}
 	go worker.askForJobLooper()
@@ -67,7 +71,38 @@ func MakeWorker(port string) (*Worker, error) {
 	return worker, nil
 }
 
+func (worker *Worker) sleepIfExponentialBackOff(){
+	maxSleepTime := 64 //seconds
+	worker.mu.Lock()
+	len := len(worker.exponentialBackOff)
+
+	if len == 0{
+		worker.exponentialBackOff = append(worker.exponentialBackOff, 1)
+		worker.mu.Unlock()
+		return
+	}
+	
+	if len != 0{
+		//have tried to get a job with no avail before
+		rand.Seed(time.Now().UnixNano())
+		mnIdx := 0
+		randomIdx := rand.Intn(len - mnIdx) + mnIdx  //get value in range [0, len)
+		timeToSleep := worker.exponentialBackOff[randomIdx]
+		
+		//append to the exponentialBackOff list if it doesn't exceed maxSleepTime
+		newElement := worker.exponentialBackOff[len - 1] * 2
+		if newElement <= maxSleepTime{
+			worker.exponentialBackOff = append(worker.exponentialBackOff, newElement)
+		}
+		worker.mu.Unlock()
+
+		logger.LogInfo(logger.WORKER, "About to sleep for %v seconds using exponential backoff", timeToSleep)
+		time.Sleep(time.Duration(timeToSleep  * int(time.Second)))
+
+	}
+}
 func (worker *Worker) askForJob(){
+	worker.sleepIfExponentialBackOff()
 	worker.mu.Lock()
 
 	logger.LogInfo(logger.WORKER, "Worker asking for a job from master")
@@ -94,6 +129,7 @@ func (worker *Worker) askForJob(){
 	worker.currentJob = true
 	worker.currentJobNum = reply.JobNum
 	worker.currentURL = reply.URL
+	worker.exponentialBackOff = make([]int, 0)
 
 	worker.mu.Unlock()
 
@@ -181,6 +217,7 @@ func (worker *Worker) resetWorkerJobStatus(){
 	worker.currentJobNum = -1
 	worker.currentURL = ""
 	worker.currentFinishedURLs = []string{}
+	worker.exponentialBackOff = make([]int, 0)
 }
 
 func (worker *Worker) doCrawl(URL string) ([]string, error){

@@ -123,7 +123,7 @@ func (master *Master) HandleGetTasks(args *RPC.GetTaskArgs, reply *RPC.GetTaskRe
 	} 
 
 	if master.currentDepth >= master.jobRequiredDepth{
-		logger.LogInfo(logger.MASTER, 
+		logger.LogDelay(logger.MASTER, 
 			"A worker requested to be given a task but we have already  " +
 			"finished the job, cur depth is %v and required is %v",
 			master.currentDepth, master.jobRequiredDepth )
@@ -145,7 +145,7 @@ func (master *Master) HandleFinishedTasks(args *RPC.FinishedTaskArgs, reply *RPC
 	defer master.mu.Unlock()
 
 	if master.currentDepth >= master.jobRequiredDepth{
-		logger.LogInfo(logger.MASTER, 
+		logger.LogDelay(logger.MASTER, 
 			"A worker has finished a task but we have already  " +
 			"finished the job, cur depth is %v and required is %v",
 			master.currentDepth, master.jobRequiredDepth )
@@ -153,7 +153,7 @@ func (master *Master) HandleFinishedTasks(args *RPC.FinishedTaskArgs, reply *RPC
 	} 
 
 	if !master.currentJob {
-		logger.LogInfo(logger.MASTER, 
+		logger.LogDelay(logger.MASTER, 
 			"A worker finished a late task for job num %v but the job is already finished",
 			args.JobNum)
 		return nil
@@ -270,7 +270,7 @@ func (master *Master) checkLateTasks() {
 		for k,v := range master.URLsTasks[master.currentDepth]{
 			if v == TaskAssigned{
 				if time.Since(master.workersTimers[master.currentDepth][k]) > time.Second * 20 {
-					logger.LogError(logger.MASTER, "Found a server that was asleep with this url %v", k)
+					logger.LogDelay(logger.MASTER, "Found a server that was asleep with this url %v", k)
 					//a server hasnt replied for 20 seconds
 					master.URLsTasks[master.currentDepth][k] = TaskAvailable   //set his task to be available
 				}
@@ -292,7 +292,7 @@ func (master *Master) isUrlVisited(args *RPC.FinishedTaskArgs) bool{
 	for i := 0; i <= master.currentDepth; i++{
 		if (master.URLsTasks[i][args.URL] == TaskDone){
 			//already finished, do nothing
-			logger.LogInfo(logger.MASTER, "Worker has finished this task with jobNum %v and URL %v " +
+			logger.LogDelay(logger.MASTER, "Worker has finished this task with jobNum %v and URL %v " +
 								"which was already finished", args.JobNum, args.URL)
 			return true
 		}	

@@ -17,6 +17,8 @@ const DATABASE = 5
 
 const LOG_INFO = 0
 const LOG_ERROR = 1
+const LOG_DELAY = 2
+
 
 func LogInfo(role int, format string, a ...interface{}){
 	format = beautifyLogs(role, format, LOG_INFO)
@@ -34,6 +36,14 @@ func LogError(role int, format string, a ...interface{}){
 	}
 }
 
+func LogDelay(role int, format string, a ...interface{}){
+	format = beautifyLogs(role, format, LOG_DELAY)
+
+	if debug == 1{
+		fmt.Printf(format, a...)
+	}
+}
+
 func beautifyLogs(role int, format string, logType int) string {
 	additionalInfo := determineRole(role)
 
@@ -42,6 +52,8 @@ func beautifyLogs(role int, format string, logType int) string {
 		additionalInfo = Green + additionalInfo + "INFO: "
 	case LOG_ERROR:
 		additionalInfo = Red + additionalInfo + "ERROR: "
+	case LOG_DELAY:
+		additionalInfo = Yellow + additionalInfo + "DELAY: "
 	default:
 		additionalInfo = Blue + additionalInfo + "DEFAULT: "
 	}
@@ -51,8 +63,9 @@ func beautifyLogs(role int, format string, logType int) string {
 	if format[len(format) - 1] != '\n'{
 		format += "\n"
 	}
-	format += "\n"
+	format += Reset + "\n" //reset the terminal color
 
+	
 	return additionalInfo + format
 }
 
