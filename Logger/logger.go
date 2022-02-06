@@ -9,16 +9,23 @@ import (
 const debug = 1;
 const log = 0;
 
-const MASTER = 0
-const WORKER = 1
-const CLUSTER = 3
-const CRAWLING = 4
-const DATABASE = 5
+const (
+	MASTER = iota
+	WORKER 
+	CLUSTER 
+	CRAWLING 
+	DATABASE 
+)
 
-const LOG_INFO = 0
-const LOG_ERROR = 1
-const LOG_DELAY = 2
-
+const (
+	LOG_INFO = iota
+	LOG_ERROR 
+	LOG_DELAY 
+	LOG_DEBUG 
+	LOG_TASK_DONE
+	LOG_JOB_DONE
+	LOG_MILESTONE 
+)
 
 func LogInfo(role int, format string, a ...interface{}){
 	format = beautifyLogs(role, format, LOG_INFO)
@@ -44,6 +51,37 @@ func LogDelay(role int, format string, a ...interface{}){
 	}
 }
 
+func LogDebug(role int, format string, a ...interface{}){
+	format = beautifyLogs(role, format, LOG_DEBUG)
+
+	if debug == 1{
+		fmt.Printf(format, a...)
+	}
+}
+
+func LogTaskDone(role int, format string, a ...interface{}){
+	format = beautifyLogs(role, format, LOG_TASK_DONE)
+
+	if debug == 1{
+		fmt.Printf(format, a...)
+	}
+}
+
+func LogJobDone(role int, format string, a ...interface{}){
+	format = beautifyLogs(role, format, LOG_JOB_DONE)
+
+	if debug == 1{
+		fmt.Printf(format, a...)
+	}
+}
+
+func LogMilestone(role int, format string, a ...interface{}){
+	format = beautifyLogs(role, format, LOG_MILESTONE)
+
+	if debug == 1{
+		fmt.Printf(format, a...)
+	}
+}
 func beautifyLogs(role int, format string, logType int) string {
 	additionalInfo := determineRole(role)
 
@@ -54,6 +92,14 @@ func beautifyLogs(role int, format string, logType int) string {
 		additionalInfo = Red + additionalInfo + "ERROR: "
 	case LOG_DELAY:
 		additionalInfo = Yellow + additionalInfo + "DELAY: "
+	case LOG_DEBUG:
+		additionalInfo = Purple + additionalInfo + "DEBUG: "
+	case LOG_TASK_DONE:
+		additionalInfo = Cyan + additionalInfo + "TASK_DONE: "
+	case LOG_JOB_DONE:
+		additionalInfo = White + additionalInfo + "JOB_DONE: "
+	case LOG_MILESTONE:
+		additionalInfo = Blue + additionalInfo + "MILESTONE: "
 	default:
 		additionalInfo = Blue + additionalInfo + "DEFAULT: "
 	}

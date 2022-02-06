@@ -18,17 +18,18 @@ func ConvertMapToList(linksMap map[string]bool) []string{
 }
 
 func ConvertMapArrayToList(linksMap []map[string]int) []string{
-	var links []string
+	//create a set to remove any duplicates
+	var set map[string]bool = make(map[string]bool)
 
 	//for each depth
 	for _, mp := range linksMap {
 		//for each element in said depth
 		for k := range mp{
-			links = append(links, k)
+			set[k] = true 
 		}
 	}
 
-	return links
+	return ConvertMapToList(set)
 }
 
 //

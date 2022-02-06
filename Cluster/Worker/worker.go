@@ -21,7 +21,7 @@ func main(){
 	_, err := MakeWorker(localhost + ":" + masterPort)
 
 	if err != nil{
-		logger.LogError(logger.CLUSTER, "Exiting becuase of error with worker creation: %v", err)
+		logger.LogError(logger.CLUSTER, "Exiting becuase of error during worker creation: %v", err)
 		os.Exit(1)
 	}
 
@@ -209,8 +209,8 @@ func (worker *Worker) attemptSendFinishedJobToMaster(args *RPC.FinishedTaskArgs)
 }
 
 //
+//  hold lock --
 // 	reset job to false for when a job is finished or am unable to complete for some reason
-//	hold lock
 //
 func (worker *Worker) resetWorkerJobStatus(){
 	worker.currentJob = false

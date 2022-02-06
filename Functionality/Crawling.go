@@ -9,6 +9,8 @@ import (
 	"golang.org/x/net/html"
 )
 
+const mxTokensToParse int = 1000
+
 
 func GetURLsSlice(url string) ([]string, error) {
 
@@ -21,8 +23,9 @@ func GetURLsSlice(url string) ([]string, error) {
 	linksMap := make(map[string]bool)
 
 	tokens := html.NewTokenizer(resp.Body)
+	ctr := 0
 
-	for {
+	for ctr < mxTokensToParse{
 		tokenType := tokens.Next()
 		
 		switch tokenType{
@@ -41,8 +44,9 @@ func GetURLsSlice(url string) ([]string, error) {
 				}
 			}
 		}
+		ctr++
 	}
-
+	return []string{}, nil
 }
 
 
