@@ -9,10 +9,12 @@ WORKDIR /go/src/myapp/Master
 
 
 RUN go mod download
-
+#arg not env so can be overriden by docker compose
+#ARG PORT=8888   
+#ENV PORT=8888
 
 #RUN go env -w GO111MODULE=off
 #RUN go build
 EXPOSE 8888
 
-ENTRYPOINT [ "go", "run", "-race", "master.go", "8888", "docker"]
+ENTRYPOINT [ "go", "run", "-race", "master.go", "docker"]

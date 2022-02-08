@@ -1,0 +1,37 @@
+version: "3.9" # optional since v1.27.0
+services:
+  master:
+    network_mode: "host"
+    environment:
+      - PORT=7777
+    build:
+      #    network: host
+      context: ./
+      dockerfile: ./Master/Dockerfile
+
+  worker1:
+    network_mode: "host"
+    environment:
+      - PORT=7777
+    build:
+      #    network: host
+      context: ./
+      dockerfile: ./Worker/Dockerfile
+
+  worker2:
+    network_mode: "host"
+    environment:
+      - PORT=7777
+    build:
+      #    network: host
+      context: ./
+      dockerfile: ./Worker/Dockerfile
+
+  worker3:
+    network_mode: "host"
+    environment:
+      - PORT=7777
+    build:
+      #    network: host
+      context: ./
+      dockerfile: ./Worker/Dockerfile

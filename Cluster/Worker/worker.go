@@ -17,21 +17,14 @@ import (
 )
 
 
-func initializeDomain(){
-// 	inContainer := len(os.Args) > 2 && os.Args[2] == "docker"
-// 	if inContainer{
-// 		masterDomain = "masterContainer"
-// 	}else{
-// 		masterDomain = "127.0.0.1"
-// 	}
-}
 
 var masterDomain string = "127.0.0.1"
+const portEnv string = "PORT"
 
 func main(){
-	initializeDomain()
 	
-	masterPort :=  os.Args[1]
+	masterPort :=  os.Getenv(portEnv)
+	// logger.LogDebug(logger.WORKER, "the master port %v", masterPort)
 	_, err := MakeWorker(masterDomain + ":" + masterPort)
 
 	if err != nil{
@@ -286,11 +279,27 @@ func (worker *Worker) askForJobLooper(){
 
 
 func (worker *Worker) callMaster(rpcName string, args interface{}, reply interface{}) bool {
-	client, err := rpc.DialHTTP("tcp", worker.masterPort)  //blocking
-	if err != nil{
+	ctr := 1
+	successfullConnection := false
+	var client *rpc.Client
+	var err error 
+
+	//attempt to conncect to master
+	for ctr <= 3 && !successfullConnection{
+		client, err = rpc.DialHTTP("tcp", worker.masterPort)  //blocking
+		if err != nil{
+			logger.LogError(logger.WORKER, "Attempt number %v of dialing master failed with error: %v\n", ctr,err)
+			time.Sleep(2 * time.Second)
+		}else{
+			successfullConnection = true
+		}
+		ctr++
+	}
+	if !successfullConnection{
 		logger.LogError(logger.WORKER, "Error dialing http: %v\nFatal Error: Can't establish connection to master. Exiting now", err)
 		os.Exit(1)
 	}
+
 	defer client.Close()
 
 	err = client.Call(rpcName, args, reply)

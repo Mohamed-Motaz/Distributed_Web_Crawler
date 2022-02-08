@@ -19,21 +19,13 @@ import (
 	utils "cluster/Utils"
 )
 
-// func initializeDomain(){
-// 	inContainer := len(os.Args) > 2 && os.Args[2] == "docker"
-// 	if inContainer{
-// 		workerDomain = "workerContainer"
-// 	}else{
-// 		workerDomain = "127.0.0.1"
-// 	}
-// }
-
 var domain string = "127.0.0.1"
+const portEnv string = "PORT"
 
 func main(){
-	// initializeDomain()
+	port :=  os.Getenv(portEnv)
+	// logger.LogDebug(logger.WORKER, "the master port %v", port)
 
-	port :=  os.Args[1]
 	master, err := MakeMaster(domain + ":" + port)
 	
 	if err != nil{
