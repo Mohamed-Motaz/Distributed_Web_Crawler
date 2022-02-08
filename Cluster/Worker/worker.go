@@ -4,33 +4,47 @@ import (
 	"math/rand"
 	"net/rpc"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
 
-	RPC "github.com/mohamed247/Distributed_Web_Crawler/Cluster/RPC"
-	crawling "github.com/mohamed247/Distributed_Web_Crawler/Functionality"
-	logger "github.com/mohamed247/Distributed_Web_Crawler/Logger"
+	crawling "cluster/Functionality"
+	logger "cluster/Logger"
+	RPC "cluster/RPC"
 )
 
-const localhost string = "127.0.0.1"
+
+func initializeDomain(){
+// 	inContainer := len(os.Args) > 2 && os.Args[2] == "docker"
+// 	if inContainer{
+// 		masterDomain = "masterContainer"
+// 	}else{
+// 		masterDomain = "127.0.0.1"
+// 	}
+}
+
+var masterDomain string = "127.0.0.1"
 
 func main(){
+	initializeDomain()
+	
 	masterPort :=  os.Args[1]
-	_, err := MakeWorker(localhost + ":" + masterPort)
+	_, err := MakeWorker(masterDomain + ":" + masterPort)
 
 	if err != nil{
-		logger.LogError(logger.CLUSTER, "Exiting becuase of error during worker creation: %v", err)
+		logger.LogError(logger.WORKER, "Exiting becuase of error during worker creation: %v", err)
 		os.Exit(1)
 	}
 
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-	wg.Wait() 
+	signalCh := make(chan os.Signal, 1)
+	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
+	
+	sig := <- signalCh //block until user exits
+	logger.LogInfo(logger.WORKER, "Received a quit sig %+v", sig)
 }
-
-
 
 type Worker struct {
 	Id string
@@ -71,6 +85,10 @@ func MakeWorker(port string) (*Worker, error) {
 	return worker, nil
 }
 
+//
+//  if master doesn't have any jobs for me
+//  sleep using exponentialBackoff to reduce load on master
+//
 func (worker *Worker) sleepIfExponentialBackOff(){
 	maxSleepTime := 64 //seconds
 	worker.mu.Lock()
@@ -103,7 +121,6 @@ func (worker *Worker) sleepIfExponentialBackOff(){
 }
 func (worker *Worker) askForJob(){
 	worker.sleepIfExponentialBackOff()
-	worker.mu.Lock()
 
 	logger.LogInfo(logger.WORKER, "Worker asking for a job from master")
 	reply := &RPC.GetTaskReply{}
@@ -111,10 +128,10 @@ func (worker *Worker) askForJob(){
 	
 	if !ok {
 		logger.LogError(logger.WORKER, "Error while sending handleGetTasks to master")
-		worker.mu.Unlock()
 		return
 	}
 
+	worker.mu.Lock()
 	if reply.JobNum == -1 {
 		worker.currentJob = false
 		worker.currentJobNum = -1
@@ -180,6 +197,11 @@ func (worker *Worker) doTask(URL string){
 	}
 }
 
+//
+//  attempt to send finished job to master 10 times at most
+//  if attempt fails, sleep for 1 second before retrying
+//
+
 func (worker *Worker) attemptSendFinishedJobToMaster(args *RPC.FinishedTaskArgs) bool {
 	ok := false
 	ctr := 1
@@ -210,7 +232,7 @@ func (worker *Worker) attemptSendFinishedJobToMaster(args *RPC.FinishedTaskArgs)
 
 //
 //  hold lock --
-// 	reset job to false for when a job is finished or am unable to complete for some reason
+//  reset job to false for when a job is finished or am unable to complete for some reason
 //
 func (worker *Worker) resetWorkerJobStatus(){
 	worker.currentJob = false

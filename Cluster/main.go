@@ -1,8 +1,7 @@
 package main
 
-
-
 func main(){
+	
 	// logger.LogInfo(logger.CLUSTER, "Setting up Cluster")
 	
 	// socketName1, err := uniqueSocket()

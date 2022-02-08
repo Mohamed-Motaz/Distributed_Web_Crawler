@@ -1,10 +1,10 @@
 package crawling
 
 import (
+	logger "cluster/Logger"
 	"net/http"
 
-	logger "github.com/mohamed247/Distributed_Web_Crawler/Logger"
-	utils "github.com/mohamed247/Distributed_Web_Crawler/Utils"
+	utils "cluster/Utils"
 
 	"golang.org/x/net/html"
 )
@@ -13,7 +13,6 @@ const mxTokensToParse int = 1000
 
 
 func GetURLsSlice(url string) ([]string, error) {
-
 	resp, err := http.Get(url)
 	if err != nil{
 		logger.LogError(logger.CRAWLING, "Error while getting the url %v", err)

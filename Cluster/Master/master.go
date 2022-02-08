@@ -1,29 +1,40 @@
 package main
 
 import (
+	"cluster/RPC"
 	"fmt"
 	"net"
 	"net/http"
 	"net/rpc"
 	"os"
+	"os/signal"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
 
-	"github.com/mohamed247/Distributed_Web_Crawler/Cluster/RPC"
-	logger "github.com/mohamed247/Distributed_Web_Crawler/Logger"
-	utils "github.com/mohamed247/Distributed_Web_Crawler/Utils"
+	logger "cluster/Logger"
+	utils "cluster/Utils"
 )
 
-const localhost string = "127.0.0.1"
+// func initializeDomain(){
+// 	inContainer := len(os.Args) > 2 && os.Args[2] == "docker"
+// 	if inContainer{
+// 		workerDomain = "workerContainer"
+// 	}else{
+// 		workerDomain = "127.0.0.1"
+// 	}
+// }
+
+var domain string = "127.0.0.1"
 
 func main(){
+	// initializeDomain()
+
 	port :=  os.Args[1]
-
-
-	master, err := MakeMaster(localhost + ":" + port)
+	master, err := MakeMaster(domain + ":" + port)
 	
 	if err != nil{
 		logger.LogError(logger.CLUSTER, "Exiting becuase of error creating a master: %v", err)
@@ -40,9 +51,11 @@ func main(){
 	// websitesNum = 2
 	// master.doCrawl(testUrl, websitesNum)
 
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-	wg.Wait() 
+	signalCh := make(chan os.Signal, 1)
+	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
+	
+	sig := <- signalCh //block until user exits
+	logger.LogInfo(logger.MASTER, "Received a quit sig %+v", sig)
 }
 
 const 
@@ -395,7 +408,7 @@ func (master *Master) debug(){
 //
 func generatePortNum() (int, *net.Listener, error){
 	for i := 8000; i <= 9000; i++{
-		listener, err := net.Listen("tcp", localhost + ":" + strconv.Itoa(i))
+		listener, err := net.Listen("tcp", domain + ":" + strconv.Itoa(i))
 		if err != nil{
 			continue
 		}
