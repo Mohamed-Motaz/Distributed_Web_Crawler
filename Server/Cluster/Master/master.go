@@ -57,19 +57,8 @@ func main(){
 		logger.FailOnError(logger.CLUSTER, "Exiting becuase of error creating a master: %v", err)
 	}
 
-	//subsribe to queue
-	
-	
-	// 	mQ.Publish(JOBS_QUEUE, "hiiiiiii there")
-
-	//later on, will be using rabbit mq
-	testUrl := "https://www.google.com/"
-	websitesNum := 3
-	master.doCrawl(testUrl, websitesNum)
-
-	// testUrl = "https://www.youtube.com/"
-	// websitesNum = 2
-	// master.doCrawl(testUrl, websitesNum)
+	//master.addJobsForTesting()
+	//go master.doCrawl("https://www.google.com/", 1)
 
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
@@ -372,24 +361,65 @@ func (master *Master) qPublisher() {
 // start a thread that waits on a job from the message queue
 //
 func (master *Master) qConsumer() {
-	// ch, err := master.q.Consume(JOBS_QUEUE)
-	// if err != nil{
-	// 	logger.FailOnError(logger.MASTER, "Master can't consume jobs because with this error %v", err)
-	// }
+	ch, err := master.q.Consume(JOBS_QUEUE)
+	if err != nil{
+		logger.FailOnError(logger.MASTER, "Master can't consume jobs because with this error %v", err)
+	}
 
 	for {
+		master.mu.Lock()
+		if master.currentJob{  //there is a current job, so dont try to pull a new one
+			master.mu.Unlock()
+			time.Sleep(time.Second)
+			continue
+		}else{
+			master.mu.Unlock()
+		}
+		
+		//no lock
 		select{
-		// case newJob := <- ch:
-		// 	body := string(newJob.Body)
+		case newJob := <- ch:  //and I am available to get one
+			//new job arrived
+			body := newJob.Body
+			data := &Job{}
 			
+			err := json.Unmarshal(body, data)
+			if err != nil {
+				logger.LogError(logger.MASTER, "Unable to consume job with error %v\nWill discard it") 
+				continue
+			}
+
+			//TODO ask lockserver if i can get it
+			newJob.Ack(false)
+
+			//just to make sure not to accept more than 1 job at a time
+			master.mu.Lock()
+			master.currentJob = true
+			master.mu.Unlock()
+
+			go master.doCrawl(data.UrlToCrawl, data.DepthToCrawl)
+
 			
 		default:
 			time.Sleep(time.Second)
 		}
+		
 
 
 	}
 
+}
+
+
+func(master *Master) addJobsForTesting(){
+	json := `{"urlToCrawl":"https://www.google.com/","depthToCrawl":1}`
+	master.q.Publish(JOBS_QUEUE, []byte(json))
+	json = `{"urlToCrawl":"https://www.facebook.com/","depthToCrawl":1}`
+	master.q.Publish(JOBS_QUEUE, []byte(json))
+	json = `{"urlToCrawl":"https://www.instagram.com/","depthToCrawl":1}`
+	master.q.Publish(JOBS_QUEUE, []byte(json))
+	master.q.Close()
+	os.Exit(1)
 }
 
 func (master *Master) debug(){
@@ -431,9 +461,6 @@ func generatePortNum() (int, *net.Listener, error){
 	}
 	return -1,nil, fmt.Errorf("unable to find an empty port")
 }
-
-
-
 
 
 //
