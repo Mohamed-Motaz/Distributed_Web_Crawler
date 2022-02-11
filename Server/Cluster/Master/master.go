@@ -7,7 +7,7 @@ import (
 	"net/rpc"
 	"os"
 	"os/signal"
-	"server/cluster/RPC"
+	RPC "server/cluster/rpc"
 	"strconv"
 	"sync"
 	"syscall"
@@ -17,6 +17,7 @@ import (
 
 	logger "server/cluster/logger"
 	utils "server/cluster/utils"
+	mq "server/messagequeue"
 )
 
 var domain string = "127.0.0.1"
@@ -26,12 +27,16 @@ func main(){
 	port :=  os.Getenv(portEnv)
 	// logger.LogDebug(logger.WORKER, "the master port %v", port)
 
-	master, err := MakeMaster(domain + ":" + port)
+	master, err := New(domain + ":" + port)
 	
 	if err != nil{
 		logger.FailOnError(logger.CLUSTER, "Exiting becuase of error creating a master: %v", err)
 	}
 
+	//subsribe to queue
+	
+	
+	// 	mQ.Publish(JOBS_QUEUE, "hiiiiiii there")
 
 	//later on, will be using rabbit mq
 	testUrl := "https://www.google.com/"
@@ -46,37 +51,35 @@ func main(){
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
 	
 	sig := <- signalCh //block until user exits
-	logger.LogInfo(logger.MASTER, "Received a quit sig %+v", sig)
+	logger.LogInfo(logger.MASTER, "Received a quit sig %+v\nNow cleaning up and closing resources", sig)
+	master.q.Close()
 }
 
-const 
-(
-	TaskAvailable = iota
-	TaskAssigned
-	TaskDone
-)
 
 type Master struct{
 	id string
 	port string
 
-	jobNum int       //job number to keep track of current job
-	jobRequiredDepth int   //required depth to traverse
-						   //min is 1, in which case I just crawl a single page and return the results
+	jobNum int       						//job number to keep track of current job
+	jobRequiredDepth int   					//required depth to traverse
+						   					//min is 1, in which case I just crawl a single page and return the results
 
-	currentJob bool  //whether or not I am currently executing a job
-	currentURL string   //currentURL job to crawl
-	currentDepth int //currentDepth, should not exceed jobRequiredDepth
+	currentJob bool  						//whether or not I am currently executing a job
+	currentURL string   					//currentURL job to crawl
+	currentDepth int 						//currentDepth, should not exceed jobRequiredDepth
 
-	URLsTasks []map[string]int //slice -> for each depth, map of whether a url task has been done, assigned, or is available
+	URLsTasks []map[string]int 				//slice -> for each depth, map of whether a url task has been done, assigned, or is available
 
-	workersTimers []map[string]time.Time  //keep track of last time a task was issued
+	workersTimers []map[string]time.Time  	//keep track of last time a task was issued
 
+	q *mq.MQ   								//message queue to publish and consume messages
+	publishCh chan FinishedJob  			//ch to send finished jobs on
+	consumeCh chan Job          			//ch to consume jobs on
 	mu sync.Mutex
 }
 
 
-func MakeMaster(port string) (*Master, error){
+func New(port string) (*Master, error){
 	guid, err := uuid.NewRandom()
 	if err != nil{
 		logger.LogError(logger.MASTER, "Error generationg uuid: %v", err)
@@ -93,90 +96,21 @@ func MakeMaster(port string) (*Master, error){
 		currentDepth: 0,
 		URLsTasks: make([]map[string]int, 0),
 		workersTimers: make([]map[string]time.Time, 0),
+		q: mq.New("amqp://guest:guest@localhost:5672/"),  //os.Getenv("AMQP_URL"))
 		mu: sync.Mutex{},
 	}
+
+	//initialize messageQ
+	go master.qPublisher()
+	go master.qConsumer()
 
 	go master.server()
 	go master.checkLateTasks()
 	go master.checkJobDone()
 	go master.debug()
-
+	
 
 	return master, nil;
-}
-
-
-
-//
-// RPC handlers
-//
-
-func (master *Master) HandleGetTasks(args *RPC.GetTaskArgs, reply *RPC.GetTaskReply) error {
-	logger.LogInfo(logger.MASTER, "A worker requested to be given a task %v", args)
-	reply.JobNum = -1
-	reply.URL = ""
-
-	master.mu.Lock()
-	defer master.mu.Unlock()
-
-	if !master.currentJob{
-		logger.LogInfo(logger.MASTER, 
-			"A worker requested to be given a task but we have no jobs at the moment")
-		return nil
-	} 
-
-	if master.currentDepth >= master.jobRequiredDepth{
-		logger.LogDelay(logger.MASTER, 
-			"A worker requested to be given a task but we have already finished the job")
-		return nil
-	} 
-
-	master.checkJobAvailable(reply)
-
-	return nil
-}
-
-func (master *Master) HandleFinishedTasks(args *RPC.FinishedTaskArgs, reply *RPC.FinishedTaskReply) error {
-	master.mu.Lock()
-	defer master.mu.Unlock()
-
-	if master.currentDepth >= master.jobRequiredDepth{
-		logger.LogDelay(logger.MASTER, 
-			"A worker has finished a task %v but we have already finished the job", args.URL)
-		return nil
-	} 
-
-	if !master.currentJob {
-		logger.LogDelay(logger.MASTER, 
-			"A worker finished a late task %v for job num %v but there is no current job",
-			args.URL, args.JobNum)
-		return nil
-	}
-
-	if (master.URLsTasks[master.currentDepth][args.URL] == TaskDone){
-		//already finished, do nothing
-		logger.LogDelay(logger.MASTER, "Worker has finished this task with jobNum %v and URL %v " +
-							"which was already finished", args.JobNum, args.URL)
-		return nil
-	}	
-
-	logger.LogTaskDone(logger.MASTER, "A worker just finished this task: \n" +
-		"JobNum: %v \nURL: %v \nURLsLen :%v", 
-		args.JobNum, args.URL, len(args.URLs))
-
-	master.URLsTasks[master.currentDepth][args.URL] = TaskDone //set the task as done
-
-
-	if master.currentDepth + 1 < master.jobRequiredDepth{
-		//add all urls to the URLsTasks next depth and set their tasks as available
-		for _, v := range args.URLs{
-			if (!master.urlInTasks(v, args.URL)){
-				master.URLsTasks[master.currentDepth + 1][v] = TaskAvailable
-			}	
-		}
-	}
-	
-	return nil
 }
 
 
@@ -346,20 +280,13 @@ func (master *Master) checkJobDone() {
 		master.mu.Lock()
 		if master.currentJob && master.currentDepth >= master.jobRequiredDepth{
 			//job is finished
-			//now send it over rabbit mq
 			logger.LogInfo(logger.MASTER, "Done with job with url %v, depth %v, and jobNum %v", 
 			master.currentURL, master.jobRequiredDepth, master.jobNum)
 
-			tot := 0
-			for _,arr := range master.URLsTasks{
-				tot += len(arr)
-			}
-
-			logger.LogInfo(logger.MASTER, "Here is the old data len %v", tot)
+			//now send it over rabbit mq
 			
-			URLsList := utils.ConvertMapArrayToList(master.URLsTasks)
+			
 
-			logger.LogInfo(logger.MASTER, "Here is the data len %v %+v", len(URLsList), URLsList)
 			master.resetMasterJobStatus(0)
 		}
 
@@ -367,6 +294,42 @@ func (master *Master) checkJobDone() {
 		time.Sleep(time.Second)
 	}
 	
+}
+
+//
+// start a thread that 
+//
+func (master *Master) qPublisher() {
+
+	for {
+		select{
+
+		default:
+			time.Sleep(time.Second)
+		}
+		URLsList := utils.ConvertMapArrayToList(master.URLsTasks)
+		logger.LogInfo(logger.MASTER, "Here is the data len %v %+v", len(URLsList), URLsList)
+
+	}
+
+}
+
+//
+// start a thread that 
+//
+func (master *Master) qConsumer() {
+
+	for {
+		select{
+
+		default:
+			time.Sleep(time.Second)
+		}
+		URLsList := utils.ConvertMapArrayToList(master.URLsTasks)
+		logger.LogInfo(logger.MASTER, "Here is the data len %v %+v", len(URLsList), URLsList)
+
+	}
+
 }
 
 func (master *Master) debug(){

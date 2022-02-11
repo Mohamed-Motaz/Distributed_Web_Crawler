@@ -1,4 +1,4 @@
-package main
+package messagequeue
 
 import (
 	"server/cluster/logger"
@@ -9,20 +9,27 @@ import (
 type MQ struct{
 	conn *amqp.Connection 
 	ch *amqp.Channel
+	jobsQ *amqp.Queue
+	jobsFinishedQ *amqp.Queue
 }
 
 const JOBS_QUEUE = "jobs"
 const DONE_JOBS_QUEUE = "doneJobs"
 
-func main() {
-	amqpAddr := "amqp://guest:guest@localhost:5672/"  //os.Getenv("AMQP_URL")
-	mQ := New(amqpAddr)
-	mQ.Publish(JOBS_QUEUE, "hiiiiiii there")
-	mQ.Close()
-}
+// func main() {
+// 	amqpAddr := "amqp://guest:guest@localhost:5672/"  //os.Getenv("AMQP_URL")
+// 	mQ := New(amqpAddr)
+// 	mQ.Publish(JOBS_QUEUE, "hiiiiiii there")
+// 	mQ.Close()
+// }
 
 func New(amqpAddr string) *MQ{
-	mq := &MQ{}
+	mq := &MQ{
+		conn: nil,
+		ch: nil,
+		jobsQ: nil,
+		jobsFinishedQ: nil,
+	}
 	mq.connect(amqpAddr)
 	return mq
 }
@@ -34,21 +41,26 @@ func(mq *MQ) Close() {
 
 func (mq *MQ) Publish(qName string, body string) error{
 
-	q, err := mq.ch.QueueDeclare(
-		qName, 
-		true,  //durable
-		false,  //autoDelete
-		false,  //exclusive -> send errors when another consumer tries to connect to it
-		false, //noWait
-		nil,
-	)		
-	if err != nil{
-		return err
+	//if jobsFinishedQ is nill, declare it
+	if mq.jobsFinishedQ == nil{
+		q, err := mq.ch.QueueDeclare(
+			qName, 
+			true,  //durable
+			false,  //autoDelete
+			false,  //exclusive -> send errors when another consumer tries to connect to it
+			false, //noWait
+			nil,
+		)		
+		if err != nil{
+			return err
+		}
+		mq.jobsFinishedQ = &q
 	}
+	
 
-	err = mq.ch.Publish(
+	err := mq.ch.Publish(
 		"", //exchange,   empty is default
-		q.Name, //routing key
+		mq.jobsFinishedQ.Name, //routing key
 		false, //mandatory 
 		false, //immediate 
 		amqp.Publishing{
@@ -67,20 +79,25 @@ func (mq *MQ) Publish(qName string, body string) error{
 
 func (mq *MQ) Consume(qName string) (<-chan amqp.Delivery, error) {
 
-	q, err := mq.ch.QueueDeclare(
-		qName, 
-		true,  //durable
-		false,  //autoDelete
-		false,  //exclusive -> send errors when another consumer tries to connect to it
-		false, //noWait
-		nil,
-	)		
-	if err != nil{
-		return nil, err
+	//if jobsQ is nill, declare it
+	if mq.jobsQ == nil{
+		q, err := mq.ch.QueueDeclare(
+			qName, 
+			true,  //durable
+			false,  //autoDelete
+			false,  //exclusive -> send errors when another consumer tries to connect to it
+			false, //noWait
+			nil,
+		)		
+		if err != nil{
+			return nil, err
+		}
+		mq.jobsQ = &q
 	}
+	
 
 	msgs, err := mq.ch.Consume(
-		q.Name,
+		mq.jobsQ.Name,
 		"", //consumer --> unique identifier that rabbit can just generate
 		false, //auto ack
 		false, //exclusive --> errors if other consumers consume
