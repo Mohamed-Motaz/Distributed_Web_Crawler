@@ -15,6 +15,7 @@ const (
 	CLUSTER 
 	CRAWLING 
 	DATABASE 
+	MESSAGE_Q
 )
 
 const (
@@ -130,6 +131,8 @@ func determineRole(role int) string{
 		return "CLUSTER-> "
 	case CRAWLING:
 		return "CRAWLING-> "
+	case MESSAGE_Q:
+		return "MESSAGE_Q-> "
 	default:
 		return "UNKNOWN -> "
 	}

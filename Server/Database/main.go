@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"os"
 
+	logger "server/cluster/logger"
+	dbConfig "server/database/configurations"
+
 	"github.com/jackc/pgx/v4/pgxpool"
-	dbConfig "github.com/mohamed247/Distributed_Web_Crawler/Configurations"
-	logger "github.com/mohamed247/Distributed_Web_Crawler/Logger"
 )
 
 const (

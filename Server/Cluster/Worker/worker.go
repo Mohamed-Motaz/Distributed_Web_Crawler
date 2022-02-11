@@ -11,9 +11,9 @@ import (
 
 	"github.com/google/uuid"
 
-	crawling "cluster/Functionality"
-	logger "cluster/Logger"
-	RPC "cluster/RPC"
+	crawling "server/cluster/functionality"
+	logger "server/cluster/logger"
+	RPC "server/cluster/rpc"
 )
 
 

@@ -1,13 +1,13 @@
 package main
 
 import (
-	"cluster/RPC"
 	"fmt"
 	"net"
 	"net/http"
 	"net/rpc"
 	"os"
 	"os/signal"
+	"server/cluster/RPC"
 	"strconv"
 	"sync"
 	"syscall"
@@ -15,8 +15,8 @@ import (
 
 	"github.com/google/uuid"
 
-	logger "cluster/Logger"
-	utils "cluster/Utils"
+	logger "server/cluster/logger"
+	utils "server/cluster/utils"
 )
 
 var domain string = "127.0.0.1"
@@ -357,7 +357,7 @@ func (master *Master) checkJobDone() {
 			}
 
 			logger.LogInfo(logger.MASTER, "Here is the old data len %v", tot)
-
+			
 			URLsList := utils.ConvertMapArrayToList(master.URLsTasks)
 
 			logger.LogInfo(logger.MASTER, "Here is the data len %v %+v", len(URLsList), URLsList)
