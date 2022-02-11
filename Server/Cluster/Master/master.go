@@ -1,12 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
 	"net/rpc"
 	"os"
 	"os/signal"
+	utils "server/Cluster/Utils"
 	RPC "server/cluster/rpc"
 	"strconv"
 	"sync"
@@ -16,12 +18,34 @@ import (
 	"github.com/google/uuid"
 
 	logger "server/cluster/logger"
-	utils "server/cluster/utils"
 	mq "server/messagequeue"
 )
 
 var domain string = "127.0.0.1"
 const portEnv string = "PORT"
+const 
+(
+	TaskAvailable = iota
+	TaskAssigned
+	TaskDone
+)
+
+
+const JOBS_QUEUE = "jobs"
+const DONE_JOBS_QUEUE = "doneJobs"
+
+
+type Job struct{
+	UrlToCrawl string		`json:"urlToCrawl"`
+	DepthToCrawl int  		`json:"depthToCrawl"`
+}
+
+type DoneJob struct{
+	UrlToCrawl string		`json:"urlToCrawl"`
+	DepthToCrawl int  		`json:"depthToCrawl"`
+	Results [][]string		`json:"results"`
+}
+
 
 func main(){
 	port :=  os.Getenv(portEnv)
@@ -73,8 +97,11 @@ type Master struct{
 	workersTimers []map[string]time.Time  	//keep track of last time a task was issued
 
 	q *mq.MQ   								//message queue to publish and consume messages
-	publishCh chan FinishedJob  			//ch to send finished jobs on
-	consumeCh chan Job          			//ch to consume jobs on
+	publishCh chan bool  					//ch to send finished jobs on
+	consumeCh chan bool          			//ch to consume jobs on
+
+	publishChAck chan bool  				//ch to send ack that finished job sent
+
 	mu sync.Mutex
 }
 
@@ -97,6 +124,9 @@ func New(port string) (*Master, error){
 		URLsTasks: make([]map[string]int, 0),
 		workersTimers: make([]map[string]time.Time, 0),
 		q: mq.New("amqp://guest:guest@localhost:5672/"),  //os.Getenv("AMQP_URL"))
+		publishCh: make(chan bool),
+		consumeCh: make(chan bool),
+		publishChAck: make(chan bool),
 		mu: sync.Mutex{},
 	}
 
@@ -283,9 +313,12 @@ func (master *Master) checkJobDone() {
 			logger.LogInfo(logger.MASTER, "Done with job with url %v, depth %v, and jobNum %v", 
 			master.currentURL, master.jobRequiredDepth, master.jobNum)
 
-			//now send it over rabbit mq
+			//now send it over channel to qPublisher rabbit mq
 			
-			
+
+
+			master.publishCh <- true
+			<- master.publishChAck  //block till Publisher sends the message to the queue or fails to do so
 
 			master.resetMasterJobStatus(0)
 		}
@@ -297,36 +330,63 @@ func (master *Master) checkJobDone() {
 }
 
 //
-// start a thread that 
+// hold lock ---
+// start a thread that listens for a finished job
+// and then publishes it to the message queue
 //
 func (master *Master) qPublisher() {
 
 	for {
 		select{
-
+		case <- master.publishCh:
+			URLsList := utils.ConvertMapArrayToList(master.URLsTasks)
+			
+			fin := &DoneJob{
+				UrlToCrawl: master.currentURL,
+				DepthToCrawl: master.jobRequiredDepth,
+				Results: URLsList,
+			}
+			
+			res, err := json.Marshal(fin)
+			if err != nil{
+				logger.LogError(logger.MASTER, "Unable to convert result to string! Discarding...")
+			}else{
+				master.q.Publish(DONE_JOBS_QUEUE, res)
+				if err != nil{
+					logger.LogError(logger.MASTER, "DoneJob not published to queue with err %v", err)
+				}
+			}
+			
+			master.publishChAck <- true
+			
 		default:
 			time.Sleep(time.Second)
 		}
-		URLsList := utils.ConvertMapArrayToList(master.URLsTasks)
-		logger.LogInfo(logger.MASTER, "Here is the data len %v %+v", len(URLsList), URLsList)
+
 
 	}
 
 }
 
 //
-// start a thread that 
+// start a thread that waits on a job from the message queue
 //
 func (master *Master) qConsumer() {
+	// ch, err := master.q.Consume(JOBS_QUEUE)
+	// if err != nil{
+	// 	logger.FailOnError(logger.MASTER, "Master can't consume jobs because with this error %v", err)
+	// }
 
 	for {
 		select{
-
+		// case newJob := <- ch:
+		// 	body := string(newJob.Body)
+			
+			
 		default:
 			time.Sleep(time.Second)
 		}
-		URLsList := utils.ConvertMapArrayToList(master.URLsTasks)
-		logger.LogInfo(logger.MASTER, "Here is the data len %v %+v", len(URLsList), URLsList)
+
 
 	}
 
@@ -370,5 +430,81 @@ func generatePortNum() (int, *net.Listener, error){
 		return i, &listener, nil
 	}
 	return -1,nil, fmt.Errorf("unable to find an empty port")
+}
+
+
+
+
+
+//
+// RPC handlers
+//
+
+func (master *Master) HandleGetTasks(args *RPC.GetTaskArgs, reply *RPC.GetTaskReply) error {
+	logger.LogInfo(logger.MASTER, "A worker requested to be given a task %v", args)
+	reply.JobNum = -1
+	reply.URL = ""
+
+	master.mu.Lock()
+	defer master.mu.Unlock()
+
+	if !master.currentJob{
+		logger.LogInfo(logger.MASTER, 
+			"A worker requested to be given a task but we have no jobs at the moment")
+		return nil
+	} 
+
+	if master.currentDepth >= master.jobRequiredDepth{
+		logger.LogDelay(logger.MASTER, 
+			"A worker requested to be given a task but we have already finished the job")
+		return nil
+	} 
+
+	master.checkJobAvailable(reply)
+
+	return nil
+}
+
+func (master *Master) HandleFinishedTasks(args *RPC.FinishedTaskArgs, reply *RPC.FinishedTaskReply) error {
+	master.mu.Lock()
+	defer master.mu.Unlock()
+
+	if master.currentDepth >= master.jobRequiredDepth{
+		logger.LogDelay(logger.MASTER, 
+			"A worker has finished a task %v but we have already finished the job", args.URL)
+		return nil
+	} 
+
+	if !master.currentJob {
+		logger.LogDelay(logger.MASTER, 
+			"A worker finished a late task %v for job num %v but there is no current job",
+			args.URL, args.JobNum)
+		return nil
+	}
+
+	if (master.URLsTasks[master.currentDepth][args.URL] == TaskDone){
+		//already finished, do nothing
+		logger.LogDelay(logger.MASTER, "Worker has finished this task with jobNum %v and URL %v " +
+							"which was already finished", args.JobNum, args.URL)
+		return nil
+	}	
+
+	logger.LogTaskDone(logger.MASTER, "A worker just finished this task: \n" +
+		"JobNum: %v \nURL: %v \nURLsLen :%v", 
+		args.JobNum, args.URL, len(args.URLs))
+
+	master.URLsTasks[master.currentDepth][args.URL] = TaskDone //set the task as done
+
+
+	if master.currentDepth + 1 < master.jobRequiredDepth{
+		//add all urls to the URLsTasks next depth and set their tasks as available
+		for _, v := range args.URLs{
+			if (!master.urlInTasks(v, args.URL)){
+				master.URLsTasks[master.currentDepth + 1][v] = TaskAvailable
+			}	
+		}
+	}
+	
+	return nil
 }
 

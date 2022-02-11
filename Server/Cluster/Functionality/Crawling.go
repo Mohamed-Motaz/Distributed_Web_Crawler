@@ -19,7 +19,7 @@ func GetURLsSlice(url string) ([]string, error) {
 		return nil, err
 	}
 
-	linksMap := make(map[string]bool)
+	linksMap := make(map[string]int)
 
 	tokens := html.NewTokenizer(resp.Body)
 	ctr := 0
@@ -37,7 +37,7 @@ func GetURLsSlice(url string) ([]string, error) {
 				for _, attr := range token.Attr{
 					if attr.Key == "href"{
 						if utils.LinkIsValid(attr.Val) {
-							linksMap[attr.Val] = true;
+							linksMap[attr.Val] = 1;
 						}
 					}
 				}

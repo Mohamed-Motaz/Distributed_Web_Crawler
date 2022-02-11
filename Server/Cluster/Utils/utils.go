@@ -9,7 +9,7 @@ func LinkIsValid(link string) bool {
 	return err == nil
 }
 
-func ConvertMapToList(linksMap map[string]bool) []string{
+func ConvertMapToList(linksMap map[string]int) []string{
 	var links []string
 
 	for k := range linksMap {
@@ -19,19 +19,16 @@ func ConvertMapToList(linksMap map[string]bool) []string{
 	return links
 }
 
-func ConvertMapArrayToList(linksMap []map[string]int) []string{
-	//create a set to remove any duplicates
-	var set map[string]bool = make(map[string]bool)
+func ConvertMapArrayToList(linksMap []map[string]int) [][]string{
+	var result [][]string = make([][]string, 0)
 
 	//for each depth
 	for _, mp := range linksMap {
 		//for each element in said depth
-		for k := range mp{
-			set[k] = true 
-		}
+		result = append(result, ConvertMapToList(mp))
 	}
 
-	return ConvertMapToList(set)
+	return result
 }
 
 //

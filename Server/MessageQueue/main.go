@@ -13,8 +13,6 @@ type MQ struct{
 	jobsFinishedQ *amqp.Queue
 }
 
-const JOBS_QUEUE = "jobs"
-const DONE_JOBS_QUEUE = "doneJobs"
 
 // func main() {
 // 	amqpAddr := "amqp://guest:guest@localhost:5672/"  //os.Getenv("AMQP_URL")
@@ -39,7 +37,7 @@ func(mq *MQ) Close() {
 	mq.conn.Close()
 }
 
-func (mq *MQ) Publish(qName string, body string) error{
+func (mq *MQ) Publish(qName string, body []byte) error{
 
 	//if jobsFinishedQ is nill, declare it
 	if mq.jobsFinishedQ == nil{
@@ -66,14 +64,14 @@ func (mq *MQ) Publish(qName string, body string) error{
 		amqp.Publishing{
 			DeliveryMode: amqp.Persistent,
 			ContentType: "text/plain",
-			Body: []byte(body),
+			Body: body,
 		},
 	)
 	if err != nil{
 		return err
 	}
 
-	logger.LogInfo(logger.MESSAGE_Q, "Successfully published to queue %v a message with this data:\n%v", qName, body)
+	logger.LogInfo(logger.MESSAGE_Q, "Successfully published to queue %v a message with this data:\n%v", qName, string(body))
 	return nil
 }
 
