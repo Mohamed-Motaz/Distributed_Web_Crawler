@@ -2,6 +2,7 @@ package logger
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"time"
 )
@@ -27,6 +28,12 @@ const (
 	LOG_JOB_DONE
 	LOG_MILESTONE 
 )
+
+func FailOnError(role int, format string, a ...interface{}){
+	format = beautifyLogs(role, format, LOG_ERROR)
+	fmt.Printf(format, a...)
+	os.Exit(1)
+}
 
 func LogInfo(role int, format string, a ...interface{}){
 	format = beautifyLogs(role, format, LOG_INFO)

@@ -2,7 +2,6 @@ package utils
 
 import (
 	"net/http"
-	"os"
 )
 
 func LinkIsValid(link string) bool {
@@ -44,8 +43,4 @@ func ResizeSlice(lst []string, requiredLen int){
 	}
 	lst = lst[:requiredLen]
 	return
-}
-
-func failOnError(){
-	os.Exit(1)
 }

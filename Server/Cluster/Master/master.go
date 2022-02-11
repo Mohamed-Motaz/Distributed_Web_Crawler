@@ -29,8 +29,7 @@ func main(){
 	master, err := MakeMaster(domain + ":" + port)
 	
 	if err != nil{
-		logger.LogError(logger.CLUSTER, "Exiting becuase of error creating a master: %v", err)
-		os.Exit(1)
+		logger.FailOnError(logger.CLUSTER, "Exiting becuase of error creating a master: %v", err)
 	}
 
 
@@ -244,11 +243,11 @@ func (master *Master) server() error{
 	
 	os.Remove(master.port)
 	listener, err := net.Listen("tcp", master.port)
-	
+
+
 	if err != nil {
-		logger.LogError(logger.MASTER, "Error while listening on socket: %v", err)
-		os.Exit(1)
-		return err
+		logger.FailOnError(logger.MASTER, "Error while listening on socket: %v", err)
+
 	}
 
 	logger.LogInfo(logger.MASTER, "Listening on socket: %v", master.port)

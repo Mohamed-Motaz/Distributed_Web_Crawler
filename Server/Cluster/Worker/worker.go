@@ -28,8 +28,7 @@ func main(){
 	_, err := MakeWorker(masterDomain + ":" + masterPort)
 
 	if err != nil{
-		logger.LogError(logger.WORKER, "Exiting becuase of error during worker creation: %v", err)
-		os.Exit(1)
+		logger.FailOnError(logger.WORKER, "Exiting becuase of error during worker creation: %v", err)
 	}
 
 	signalCh := make(chan os.Signal, 1)
@@ -296,8 +295,7 @@ func (worker *Worker) callMaster(rpcName string, args interface{}, reply interfa
 		ctr++
 	}
 	if !successfullConnection{
-		logger.LogError(logger.WORKER, "Error dialing http: %v\nFatal Error: Can't establish connection to master. Exiting now", err)
-		os.Exit(1)
+		logger.FailOnError(logger.WORKER, "Error dialing http: %v\nFatal Error: Can't establish connection to master. Exiting now", err)
 	}
 
 	defer client.Close()
