@@ -1,10 +1,9 @@
-package crawling
+package Crawling
 
 import (
+	logger "Server/Cluster/Logger"
+	utils "Server/Cluster/Utils"
 	"net/http"
-	logger "server/cluster/logger"
-
-	utils "server/cluster/utils"
 
 	"golang.org/x/net/html"
 )

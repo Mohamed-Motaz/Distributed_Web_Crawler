@@ -1,5 +1,16 @@
 version: "3.9" # optional since v1.27.0
 services:
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    network_mode: "host"
+    # ports:
+    #   - 5672:5672
+    #   - 15672:15672
+    volumes:
+      - ~/docker-conf/rabbitmq/data/:/var/lib/rabbitmq/
+      - ~/docker-conf/rabbitmq/log/:/var/log/rabbitmq
+
+  # CLUSTER 1  ---------------------------------------------------
   master:
     network_mode: "host"
     environment:
@@ -7,7 +18,7 @@ services:
     build:
       #    network: host
       context: ./
-      dockerfile: ./Master/Dockerfile
+      dockerfile: ./cluster/master/Dockerfile
 
   worker1:
     network_mode: "host"
@@ -16,7 +27,7 @@ services:
     build:
       #    network: host
       context: ./
-      dockerfile: ./Worker/Dockerfile
+      dockerfile: ./cluster/worker/Dockerfile
 
   worker2:
     network_mode: "host"
@@ -25,7 +36,7 @@ services:
     build:
       #    network: host
       context: ./
-      dockerfile: ./Worker/Dockerfile
+      dockerfile: ./cluster/worker/Dockerfile
 
   worker3:
     network_mode: "host"
@@ -34,4 +45,4 @@ services:
     build:
       #    network: host
       context: ./
-      dockerfile: ./Worker/Dockerfile
+      dockerfile: ./cluster/worker/Dockerfile

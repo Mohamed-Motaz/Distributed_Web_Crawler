@@ -5,7 +5,7 @@ FROM golang:alpine
 RUN apk add build-base
 
 ADD . /go/src/myapp
-WORKDIR /go/src/myapp/Master
+WORKDIR /go/src/myapp/Cluster/Master
 
 
 RUN go mod download

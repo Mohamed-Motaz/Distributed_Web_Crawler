@@ -1,6 +1,9 @@
 package main
 
 import (
+	crawling "Server/Cluster/Functionality"
+	logger "Server/Cluster/Logger"
+	"Server/Cluster/RPC"
 	"math/rand"
 	"net/rpc"
 	"os"
@@ -10,10 +13,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-
-	crawling "server/cluster/functionality"
-	logger "server/cluster/logger"
-	RPC "server/cluster/rpc"
 )
 
 

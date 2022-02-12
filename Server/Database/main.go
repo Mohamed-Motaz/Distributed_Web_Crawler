@@ -1,12 +1,11 @@
 package main
 
 import (
+	logger "Server/Cluster/Logger"
+	dbConfig "Server/Database/Configurations"
 	"context"
 	"fmt"
 	"os"
-
-	logger "server/cluster/logger"
-	dbConfig "server/database/configurations"
 
 	"github.com/jackc/pgx/v4/pgxpool"
 )

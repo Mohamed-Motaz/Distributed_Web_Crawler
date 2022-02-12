@@ -1,4 +1,4 @@
-package dbConfig
+package DbConfig
 
 
 const (

@@ -1,4 +1,4 @@
-module server
+module Server
 
 go 1.17
 

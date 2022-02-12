@@ -1,6 +1,10 @@
 package main
 
 import (
+	logger "Server/Cluster/Logger"
+	"Server/Cluster/RPC"
+	utils "Server/Cluster/Utils"
+	mq "Server/MessageQueue"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -8,17 +12,12 @@ import (
 	"net/rpc"
 	"os"
 	"os/signal"
-	utils "server/Cluster/Utils"
-	RPC "server/cluster/rpc"
 	"strconv"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/google/uuid"
-
-	logger "server/cluster/logger"
-	mq "server/messagequeue"
 )
 
 var domain string = "127.0.0.1"

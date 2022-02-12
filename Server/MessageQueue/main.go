@@ -1,7 +1,9 @@
-package messagequeue
+package MessageQueue
 
 import (
-	"server/cluster/logger"
+	logger "Server/Cluster/Logger"
+	"fmt"
+	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -28,7 +30,15 @@ func New(amqpAddr string) *MQ{
 		jobsQ: nil,
 		jobsFinishedQ: nil,
 	}
-	mq.connect(amqpAddr)
+	//try to reconnect and sleep 2 seconds on failure
+	var err error = fmt.Errorf("error")
+	ctr := 0
+	for ctr < 3 && err != nil{
+		err = mq.connect(amqpAddr)
+		ctr++
+		time.Sleep(time.Second * 2)
+	}
+	
 	return mq
 }
 
