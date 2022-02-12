@@ -13,6 +13,7 @@ const log = 0;
 const (
 	MASTER = iota
 	WORKER 
+	LOCK_SERVER
 	CLUSTER 
 	CRAWLING 
 	DATABASE 
@@ -134,13 +135,17 @@ func determineRole(role int) string{
 		return "MASTER-> "
 	case WORKER:
 		return "WORKER-> "
+	case LOCK_SERVER:
+		return "LOCK_SERVER-> "
 	case CLUSTER:
 		return "CLUSTER-> "
 	case CRAWLING:
 		return "CRAWLING-> "
 	case MESSAGE_Q:
 		return "MESSAGE_Q-> "
+	case DATABASE:
+		return "DATABASE-> "
 	default:
-		return "UNKNOWN -> "
+		return "UNKNOWN-> "
 	}
 }

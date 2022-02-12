@@ -2,7 +2,7 @@ package main
 
 import (
 	logger "Server/Cluster/Logger"
-	dbConfig "Server/Database/Configurations"
+	dbConfig "Server/LockServer/Database/Configurations"
 	"context"
 	"fmt"
 	"os"
