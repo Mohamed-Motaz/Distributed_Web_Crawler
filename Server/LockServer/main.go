@@ -2,6 +2,7 @@ package main //LockServer
 
 import (
 	logger "Server/Cluster/Logger"
+	"Server/Cluster/RPC"
 	"net"
 	"net/http"
 	"net/rpc"
@@ -59,7 +60,7 @@ func New(port string) (*LockServer, error){
 	}
 
 	go lockServer.server()
-	
+
 	return lockServer, nil;
 }
 
@@ -87,3 +88,71 @@ func (lockServer *LockServer) server() error{
 	go http.Serve(listener, nil)
 	return nil
 }
+
+
+//
+// RPC handlers
+//
+
+func (lockServer *LockServer) HandleGetJobs(args *RPC.GetJobArgs, reply *RPC.GetJobReply) error {
+	logger.LogInfo(logger.LOCK_SERVER, "A master requested to be given a job %v", args)
+	reply.Accepted = false
+
+	lockServer.mu.Lock()
+	defer lockServer.mu.Unlock()
+
+
+	//if {
+	//	logger.LogDelay(logger.LOCK_SERVER, 
+	//		"A worker requested to be given a job but we have already given the job to another server")
+	//	return nil
+	//} 
+
+	//lockServer.checkJobAvailable(reply)
+
+	return nil
+}
+
+func (lockServer *LockServer) HandleFinishedjobs(args *RPC.FinishedJobArgs, reply *RPC.FinishedJobReply) error {
+	lockServer.mu.Lock()
+	defer lockServer.mu.Unlock()
+
+	if lockServer.currentDepth >= lockServer.jobRequiredDepth{
+		logger.LogDelay(logger.LOCK_SERVER, 
+			"A worker has finished a job %v but we have already finished the job", args.URL)
+		return nil
+	} 
+
+	if !lockServer.currentJob {
+		logger.LogDelay(logger.LOCK_SERVER, 
+			"A worker finished a late job %v for job num %v but there is no current job",
+			args.URL, args.JobNum)
+		return nil
+	}
+
+	if (lockServer.URLsjobs[lockServer.currentDepth][args.URL] == jobDone){
+		//already finished, do nothing
+		logger.LogDelay(logger.LOCK_SERVER, "Worker has finished this job with jobNum %v and URL %v " +
+							"which was already finished", args.JobNum, args.URL)
+		return nil
+	}	
+
+	logger.LogjobDone(logger.LOCK_SERVER, "A worker just finished this job: \n" +
+		"JobNum: %v \nURL: %v \nURLsLen :%v", 
+		args.JobNum, args.URL, len(args.URLs))
+
+	lockServer.URLsjobs[lockServer.currentDepth][args.URL] = jobDone //set the job as done
+
+
+	if lockServer.currentDepth + 1 < lockServer.jobRequiredDepth{
+		//add all urls to the URLsjobs next depth and set their jobs as available
+		for _, v := range args.URLs{
+			if (!lockServer.urlInjobs(v, args.URL)){
+				lockServer.URLsjobs[lockServer.currentDepth + 1][v] = jobAvailable
+			}	
+		}
+	}
+	
+	return nil
+}
+

@@ -1,5 +1,19 @@
 version: "3.9" # optional since v1.27.0
 services:
+  database:
+    container_name: database
+    network_mode: "host"
+    image: postgres:latest
+    restart: always
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=DistributedWebCrawler
+    # ports:
+    #   - 5432:5432
+    volumes:
+      - ~/docker-conf/postgresql/data/:/var/lib/postgresql/data 
+
   rabbitmq:
     image: rabbitmq:3-management-alpine
     network_mode: "host"
