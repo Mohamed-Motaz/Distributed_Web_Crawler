@@ -4,6 +4,7 @@ import (
 	logger "Server/Cluster/Logger"
 	dbConfig "Server/LockServer/Database/Configurations"
 	"fmt"
+	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -17,13 +18,23 @@ const (
 	dbname = dbConfig.Dbname
 )
 
+const TABLE_NAME = "infos"
+const ID = "id"
+const JOB_ID = "job_id"
+const MASTER_ID = "master_id"
+const URL_TO_CRAWL = "url_to_crawl"
+const DEPTH_TO_CRAWL = "depth_to_crawl"
+const TIME_ASSIGNED = "time_assigned"
+
 type Info struct{
-	JobId	int    `gorm:"primaryKey"` 		//primary key					  
+	Id int									`gorm:"primaryKey"` 	
+	JobId	string    						//id of job				  
 	MasterId string							//id of master
 	UrlToCrawl string						//urlToCrawl
 	DepthToCrawl int  						//depth required
 	TimeAssigned int64						//epoch time in seconds	
 }
+
 type DBWrapper struct{
 	db *gorm.DB
 }
@@ -32,6 +43,8 @@ func main(){
 	logger.LogInfo(logger.DATABASE, "Starting setup of db")
 	dBWrapper := New()
 
+	//manualTesting(dBWrapper);
+	
 	dBWrapper.Close()
 }
 
@@ -51,11 +64,18 @@ func (db *DBWrapper) Close(){
 }
 
 func (db *DBWrapper) GetRecord(info *Info, query string, value interface{}){
-	db.db.First(info, query, value)
+	db.db.Where(query, value).First(info)
 }
 
 func (db *DBWrapper) GetRecords(infos *[]Info, query string, value interface{}){
 	db.db.Where(query, value).Find(infos)
+}
+
+func (db *DBWrapper) GetRecordsThatPassedXSeconds(infos *[]Info, seconds int){
+	now := time.Now().UnixMilli() / 1000
+	start := now - int64(seconds)
+
+	db.GetRecords(infos, TIME_ASSIGNED + " <= ?", start)
 }
 
 func (db *DBWrapper) GetAllRecords(infos *[]Info){
@@ -66,9 +86,23 @@ func (db *DBWrapper) AddRecord(info *Info){
 	db.db.Create(info)
 }
 
-func (db *DBWrapper) UpdateRecord(info *Info, data map[string]interface{} ){
-	db.db.Model(&info).Updates(data)
+func (db *DBWrapper) UpdateRecord(info *Info ){
+	db.db.Save(info)
 }
+
+//permenant deletion
+func (db *DBWrapper) DeleteRecord(info *Info){
+	db.db.Unscoped().Delete(info)
+}
+
+//permenant deletion, susceptible to sql injections
+func (db *DBWrapper) DeleteAllRecords(table string){
+	db.db.Unscoped().Exec("Delete from " + table)
+}
+
+// func (db *DBWrapper) UpdateRecord(info *Info, data map[string]interface{} ){
+// 	db.db.Model(&info).Updates(data)
+// }
 
 func connect() *gorm.DB{
 
@@ -88,4 +122,46 @@ func setUp(db *gorm.DB) {
 	if err != nil{
 		logger.FailOnError(logger.DATABASE, "Unable to migrate the tables with this error %v", err)
 	}
+}
+
+func manualTesting(dBWrapper *DBWrapper) {
+	info := &Info{
+		JobId: "JobId",
+		MasterId: "MasterId",
+		UrlToCrawl: "UrlToCrawl",
+		DepthToCrawl: 1,
+		TimeAssigned: 10,
+	}
+	dBWrapper.AddRecord(info)
+
+	info = &Info{}
+	dBWrapper.GetRecord(info, JOB_ID + " = ?", "JobId")
+	logger.LogInfo(logger.DATABASE, "The info retreived %+v", info)
+
+	infos := []Info{}
+	dBWrapper.GetRecords(&infos, URL_TO_CRAWL + " = ?", "UrlToCrawl")
+	logger.LogInfo(logger.DATABASE, "The infos retreived %+v", infos)
+
+	infos = []Info{}
+	dBWrapper.GetAllRecords(&infos)
+	logger.LogInfo(logger.DATABASE, "All infos retreived %+v", infos)
+
+	info.JobId = "NNEWWWW"
+	dBWrapper.UpdateRecord(info)
+
+	infos = []Info{}
+	dBWrapper.GetAllRecords(&infos)
+	logger.LogInfo(logger.DATABASE, "All infos retreived after update %+v", infos)
+
+	infos = []Info{}
+	dBWrapper.GetRecordsThatPassedXSeconds(&infos, 20)
+	logger.LogInfo(logger.DATABASE, "All infos that passedXseconds %+v", infos)
+
+	dBWrapper.DeleteRecord(info)
+
+	infos = []Info{}
+	dBWrapper.GetAllRecords(&infos)
+	logger.LogInfo(logger.DATABASE, "All infos retreived after deleting record %+v", infos)
+
+	dBWrapper.DeleteAllRecords(TABLE_NAME)
 }
