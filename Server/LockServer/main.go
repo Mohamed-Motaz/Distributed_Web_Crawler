@@ -12,6 +12,7 @@ import (
 	"os/signal"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -110,19 +111,15 @@ func (lockServer *LockServer) server() error{
 func (lockServer *LockServer) HandleGetJobs(args *RPC.GetJobArgs, reply *RPC.GetJobReply) error {
 	logger.LogInfo(logger.LOCK_SERVER, "A master requested to be given a job %v", args)
 	reply.Accepted = false
+	reply.AlternateJob = false
 
-	//check if there are any late jobs (20 sec) that need to be reassigned
-	secondsPassed := 60
-	infos := []database.Info{}
-	lockServer.dbWrapper.GetRecordsThatPassedXSeconds(&infos, secondsPassed)
-
-	if len(infos) != 0{
-		//found a job that had been assigned but is late
-		
-
+	//check if there are any late jobs (60 sec) that need to be reassigned
+	if lockServer.handleLateJobs(args, reply){
+		return nil
 	}
 
 	//no late jobs present
+
 
 	//check the job isnt taken by any other master
 	info := &database.Info{}
@@ -135,15 +132,8 @@ func (lockServer *LockServer) HandleGetJobs(args *RPC.GetJobArgs, reply *RPC.Get
 	}
 
 	//job is present and another master has been assigned it
-	//check the date on it
-
-	//if {
-	//	logger.LogDelay(logger.LOCK_SERVER, 
-	//		"A worker requested to be given a job but we have already given the job to another server")
-	//	return nil
-	//} 
-
-	//lockServer.checkJobAvailable(reply)
+	//job can't be late since we have already handled the case where it is indeed late
+	//we have to reject it, and we can't provide an alternative
 
 	return nil
 }
@@ -191,3 +181,27 @@ func (lockServer *LockServer) HandleFinishedjobs(args *RPC.FinishedJobArgs, repl
 	return nil
 }
 
+func (lockServer *LockServer) handleLateJobs(args *RPC.GetJobArgs, reply *RPC.GetJobReply) bool{
+	secondsPassed := 60
+	infos := []database.Info{}
+	lockServer.dbWrapper.GetRecordsThatPassedXSeconds(&infos, secondsPassed)
+
+	if len(infos) == 0{
+		return false //no late jobs found
+	}
+
+
+	//found a job that had been assigned but is late
+	info := &infos[0]
+	reply.AlternateJob = true
+	reply.JobId = info.JobId
+	reply.URL = info.UrlToCrawl
+	reply.Depth = info.DepthToCrawl
+	
+	//update the db with the details of the new master
+	info.MasterId = args.MasterId
+	info.TimeAssigned = time.Now().Unix()
+	lockServer.dbWrapper.UpdateRecord(info)
+	return true
+
+}

@@ -28,7 +28,7 @@ type GetJobArgs struct{
 	MasterId string
 	JobId string
 	URL string   //url to crawl
-	DepthToCrawl int
+	Depth int
 }
 
 type GetJobReply struct{
@@ -36,7 +36,7 @@ type GetJobReply struct{
 	AlternateJob bool  //whether there is an alternate job with higher priority
 	JobId string       //details of alternate job
 	URL string   
-	DepthToCrawl int
+	Depth int
 }
 
 type FinishedJobArgs struct{

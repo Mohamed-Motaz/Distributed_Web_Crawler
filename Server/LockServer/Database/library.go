@@ -16,6 +16,10 @@ const TIME_ASSIGNED = "time_assigned"
 
 //all the methods available to the user of this package
 
+func (db *DBWrapper) UpdateRecord(info *Info){
+	db.updateRecord(info)
+}
+
 func (db *DBWrapper) GetRecordByJobId(info *Info, jobId string){
 	db.getRecord(info, JOB_ID + " = ?", jobId)
 }
