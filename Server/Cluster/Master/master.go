@@ -307,8 +307,8 @@ func (master *Master) checkJobDone() {
 		master.mu.Lock()
 		if master.currentJob && master.currentDepth >= master.jobRequiredDepth{
 			//job is finished
-			logger.LogInfo(logger.MASTER, "Done with job with url %v, depth %v, and jobNum %v", 
-			master.currentURL, master.jobRequiredDepth, master.jobNum)
+			logger.LogInfo(logger.MASTER, "Done with job with id %v url %v, depth %v, and jobNum %v", 
+			master.jobId, master.currentURL, master.jobRequiredDepth, master.jobNum)
 
 			//now send it over channel to qPublisher rabbit mq
 			
@@ -381,6 +381,8 @@ func (master *Master) qPublisher() {
 //
 func (master *Master) qConsumer() {
 	ch, err := master.q.Consume(JOBS_QUEUE)
+	time.Sleep(2 * time.Second) //sleep for 2 seconds to await lockServer waking up
+
 	if err != nil{
 		logger.FailOnError(logger.MASTER, "Master can't consume jobs because with this error %v", err)
 	}
@@ -410,11 +412,15 @@ func (master *Master) qConsumer() {
 			}
 
 			//ask lockserver if i can get it
+			master.mu.Lock()
+			id := master.id
+			master.mu.Unlock()
 			args := &RPC.GetJobArgs{
-				MasterId: master.id,
+				MasterId: id,
 				JobId: data.JobId,
 				URL: data.UrlToCrawl,
 				Depth: data.DepthToCrawl,
+				NoCurrentJob: false,
 			}
 			reply := &RPC.GetJobReply{}
 			ok := master.callLockServer("LockServer.HandleGetJobs", args, reply)
@@ -423,24 +429,20 @@ func (master *Master) qConsumer() {
 				newJob.Nack(false, true)
 			}
 
-			//just to make sure not to accept more than 1 job at a time
-			master.mu.Lock()
-			master.currentJob = true
-			master.mu.Unlock()
 
 			if reply.Accepted{
 				//use data
 				logger.LogInfo(logger.MASTER, "LockServer accepted job request %+v", args) 
 				newJob.Ack(false)
-				go master.doCrawl(data.UrlToCrawl, data.DepthToCrawl, data.JobId)
+				master.startJob(data.UrlToCrawl, data.DepthToCrawl, data.JobId)
 				continue
 			}
 
 			if reply.AlternateJob{
 				//use reply 
-				logger.LogInfo(logger.MASTER, "LockServer provided alternative job %+v", reply) 
+				logger.LogInfo(logger.MASTER, "LockServer provided outstanding job %+v", reply) 
 				newJob.Nack(false, true)
-				go master.doCrawl(reply.URL, reply.Depth, reply.JobId)
+				master.startJob(reply.URL, reply.Depth, reply.JobId)
 				continue
 			}
 				
@@ -448,14 +450,40 @@ func (master *Master) qConsumer() {
 			newJob.Nack(false, true)
 			
 		default:
+			//need to ask lockServer if there are any outstanding jobs
+			master.mu.Lock()
+			id := master.id
+			master.mu.Unlock()
+			args := &RPC.GetJobArgs{
+				MasterId: id,
+				NoCurrentJob: true,
+			}
+			reply := &RPC.GetJobReply{}
+			ok := master.callLockServer("LockServer.HandleGetJobs", args, reply)
+			if ok{
+				if reply.AlternateJob{
+					//there is indeed an outstanding job
+					logger.LogInfo(logger.MASTER, "LockServer provided outstanding job %+v", reply) 
+					master.startJob(reply.URL, reply.Depth, reply.JobId)
+					continue
+				}
+			}
 			logger.LogInfo(logger.MASTER, "No jobs found, about to sleep") 
-			time.Sleep(time.Second)
+			time.Sleep(time.Second * 5)
 		}
 		
 
 
 	}
 
+}
+
+func (master *Master) startJob(url string, depth int, jobId string){
+	//just to make sure not to accept more than 1 job at a time
+	master.mu.Lock()
+	master.currentJob = true
+	master.mu.Unlock()
+	go master.doCrawl(url, depth, jobId)
 }
 
 //
@@ -530,11 +558,11 @@ func (master *Master) callLockServer(rpcName string, args interface{}, reply int
 }
 
 func(master *Master) addJobsForTesting(){
-	json := `{"jobId":"JOB1","urlToCrawl":"https://www.google.com/","depthToCrawl":3}`
+	json := `{"jobId":"JOB1","urlToCrawl":"https://www.google.com/","depthToCrawl":2}`
 	master.q.Publish(JOBS_QUEUE, []byte(json))
-	json = `{"jobId":"JOB2","urlToCrawl":"https://www.facebook.com/","depthToCrawl":3}`
+	json = `{"jobId":"JOB2","urlToCrawl":"https://www.facebook.com/","depthToCrawl":2}`
 	master.q.Publish(JOBS_QUEUE, []byte(json))
-	json = `{"jobId":"JOB3","urlToCrawl":"https://www.instagram.com/","depthToCrawl":3}`
+	json = `{"jobId":"JOB3","urlToCrawl":"https://www.instagram.com/","depthToCrawl":2}`
 	master.q.Publish(JOBS_QUEUE, []byte(json))
 	master.q.Close()
 	os.Exit(1)

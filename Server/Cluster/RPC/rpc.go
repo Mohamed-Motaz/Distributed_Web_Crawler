@@ -29,6 +29,7 @@ type GetJobArgs struct{
 	JobId string
 	URL string   //url to crawl
 	Depth int
+	NoCurrentJob bool  //for when a master wants an outstanding job from the lockserver if any are available
 }
 
 type GetJobReply struct{

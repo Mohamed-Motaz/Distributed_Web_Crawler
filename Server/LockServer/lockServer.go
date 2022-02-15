@@ -111,13 +111,27 @@ func (lockServer *LockServer) HandleGetJobs(args *RPC.GetJobArgs, reply *RPC.Get
 	//no late jobs present
 
 
+	if args.NoCurrentJob{    
+		//this is a master who doesnt have a job from the queue, so is instead asking me for
+		//an outstanding job
+		return nil
+	}
+
+
 	//check the job isnt taken by any other master
 	info := &database.Info{}
 	lockServer.dbWrapper.GetRecordByJobId(info, args.JobId)
 
 	if info.Id == 0{
 		//no job present, can safely send assign this job to this master
-		logger.LogInfo(logger.LOCK_SERVER, "Job request accepted")
+		logger.LogInfo(logger.LOCK_SERVER, "Job request accepted %+v", args)
+		lockServer.dbWrapper.AddRecord(&database.Info{
+			JobId: args.JobId,
+			MasterId: args.MasterId,
+			UrlToCrawl: args.URL,
+			DepthToCrawl: args.Depth,
+			TimeAssigned: time.Now().Unix(),
+		})
 		reply.Accepted = true
 		return nil
 	}
@@ -125,13 +139,13 @@ func (lockServer *LockServer) HandleGetJobs(args *RPC.GetJobArgs, reply *RPC.Get
 	//job is present and another master has been assigned it
 	//job can't be late since we have already handled the case where it is indeed late
 	//we have to reject it, and we can't provide an alternative
-	logger.LogError(logger.LOCK_SERVER, "Job request rejected")
+	logger.LogError(logger.LOCK_SERVER, "Job request rejected %+v", args)
 
 	return nil
 }
 
 func (lockServer *LockServer) HandleFinishedJobs(args *RPC.FinishedJobArgs, reply *RPC.FinishedJobReply) error {
-	logger.LogInfo(logger.LOCK_SERVER, "A master just finished this job: \n%+v", args)
+	logger.LogJobDone(logger.LOCK_SERVER, "A master just finished this job: \n%+v", args)
 
 	info := &database.Info{}
 	lockServer.dbWrapper.GetRecordByJobId(info, args.JobId)

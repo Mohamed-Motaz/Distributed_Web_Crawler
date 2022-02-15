@@ -25,6 +25,7 @@ func ConvertMapArrayToList(linksMap []map[string]int) [][]string{
 	//for each depth
 	for _, mp := range linksMap {
 		//for each element in said depth
+		
 		result = append(result, ConvertMapToList(mp))
 	}
 
