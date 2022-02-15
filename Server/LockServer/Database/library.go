@@ -24,6 +24,10 @@ func (db *DBWrapper) GetRecordByJobId(info *Info, jobId string){
 	db.getRecord(info, JOB_ID + " = ?", jobId)
 }
 
+func (db *DBWrapper) DeleteRecord(info *Info){
+	db.deleteRecord(info)
+}
+
 func (db *DBWrapper) GetRecordsThatPassedXSeconds(infos *[]Info, seconds int){
 	now := time.Now().UnixMilli() / 1000
 	start := now - int64(seconds)

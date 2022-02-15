@@ -4,7 +4,6 @@ import (
 	logger "Server/Cluster/Logger"
 	"Server/Cluster/RPC"
 	database "Server/LockServer/Database"
-	"fmt"
 	"net"
 	"net/http"
 	"net/rpc"
@@ -23,17 +22,7 @@ const portEnv string = "PORT"
 func main(){
 	
 	port :=  os.Getenv(portEnv)
-	l, err := New(domain + ":" + port)
-	
-	//database.ManualTesting(l.dbWrapper);
-	info := &database.Info{}
-	l.dbWrapper.GetRecordByJobId(info, "NNEWWWW")
-	fmt.Printf("%+v\n", info)
-
-
-	infos := []database.Info{}
-	l.dbWrapper.GetRecordsThatPassedXSeconds(&infos, 20)
-	fmt.Printf("%+v\n", infos)
+	_, err := New(domain + ":" + port)
 
 	if err != nil{
 		logger.FailOnError(logger.LOCK_SERVER, "Exiting becuase of error creating a lockServer: %v", err)
@@ -109,12 +98,13 @@ func (lockServer *LockServer) server() error{
 //
 
 func (lockServer *LockServer) HandleGetJobs(args *RPC.GetJobArgs, reply *RPC.GetJobReply) error {
-	logger.LogInfo(logger.LOCK_SERVER, "A master requested to be given a job %v", args)
+	logger.LogInfo(logger.LOCK_SERVER, "A master requested to be given a job %+v", args)
 	reply.Accepted = false
 	reply.AlternateJob = false
 
 	//check if there are any late jobs (60 sec) that need to be reassigned
-	if lockServer.handleLateJobs(args, reply){
+	secondsPassed := 60
+	if lockServer.handleLateJobs(args, reply, secondsPassed){
 		return nil
 	}
 
@@ -127,6 +117,7 @@ func (lockServer *LockServer) HandleGetJobs(args *RPC.GetJobArgs, reply *RPC.Get
 
 	if info.Id == 0{
 		//no job present, can safely send assign this job to this master
+		logger.LogInfo(logger.LOCK_SERVER, "Job request accepted")
 		reply.Accepted = true
 		return nil
 	}
@@ -134,61 +125,36 @@ func (lockServer *LockServer) HandleGetJobs(args *RPC.GetJobArgs, reply *RPC.Get
 	//job is present and another master has been assigned it
 	//job can't be late since we have already handled the case where it is indeed late
 	//we have to reject it, and we can't provide an alternative
+	logger.LogError(logger.LOCK_SERVER, "Job request rejected")
 
 	return nil
 }
 
 func (lockServer *LockServer) HandleFinishedjobs(args *RPC.FinishedJobArgs, reply *RPC.FinishedJobReply) error {
-	lockServer.mu.Lock()
-	defer lockServer.mu.Unlock()
+	logger.LogInfo(logger.LOCK_SERVER, "A master just finished this job: \n%+v", args)
 
-	// if lockServer.currentDepth >= lockServer.jobRequiredDepth{
-	// 	logger.LogDelay(logger.LOCK_SERVER, 
-	// 		"A worker has finished a job %v but we have already finished the job", args.URL)
-	// 	return nil
-	// } 
+	info := &database.Info{}
+	lockServer.dbWrapper.GetRecordByJobId(info, args.JobId)
+	if info.Id == 0{
+		//job not in the db, may have already been finished
+		logger.LogError(logger.LOCK_SERVER, "Job already removed from database")
+		return nil
+	}
 
-	// if !lockServer.currentJob {
-	// 	logger.LogDelay(logger.LOCK_SERVER, 
-	// 		"A worker finished a late job %v for job num %v but there is no current job",
-	// 		args.URL, args.JobNum)
-	// 	return nil
-	// }
-
-	// if (lockServer.URLsjobs[lockServer.currentDepth][args.URL] == jobDone){
-	// 	//already finished, do nothing
-	// 	logger.LogDelay(logger.LOCK_SERVER, "Worker has finished this job with jobNum %v and URL %v " +
-	// 						"which was already finished", args.JobNum, args.URL)
-	// 	return nil
-	// }	
-
-	// logger.LogjobDone(logger.LOCK_SERVER, "A worker just finished this job: \n" +
-	// 	"JobNum: %v \nURL: %v \nURLsLen :%v", 
-	// 	args.JobNum, args.URL, len(args.URLs))
-
-	// lockServer.URLsjobs[lockServer.currentDepth][args.URL] = jobDone //set the job as done
-
-
-	// if lockServer.currentDepth + 1 < lockServer.jobRequiredDepth{
-	// 	//add all urls to the URLsjobs next depth and set their jobs as available
-	// 	for _, v := range args.URLs{
-	// 		if (!lockServer.urlInjobs(v, args.URL)){
-	// 			lockServer.URLsjobs[lockServer.currentDepth + 1][v] = jobAvailable
-	// 		}	
-	// 	}
-	// }
-	
+	lockServer.dbWrapper.DeleteRecord(info)
+	logger.LogJobDone(logger.LOCK_SERVER, "Job finished successfully")
 	return nil
+
 }
 
-func (lockServer *LockServer) handleLateJobs(args *RPC.GetJobArgs, reply *RPC.GetJobReply) bool{
-	secondsPassed := 60
+func (lockServer *LockServer) handleLateJobs(args *RPC.GetJobArgs, reply *RPC.GetJobReply, secondsPassed int) bool{
 	infos := []database.Info{}
 	lockServer.dbWrapper.GetRecordsThatPassedXSeconds(&infos, secondsPassed)
 
 	if len(infos) == 0{
 		return false //no late jobs found
 	}
+	logger.LogDelay(logger.LOCK_SERVER, "Found a late job that will be reassigned %+v", infos[0])
 
 
 	//found a job that had been assigned but is late

@@ -159,4 +159,36 @@ func ManualTesting(dBWrapper *DBWrapper) {
 	logger.LogInfo(logger.DATABASE, "All infos retreived after deleting record %+v", infos)
 
 	//dBWrapper.deleteAllRecords(TABLE_NAME)
+
+		
+	//database.ManualTesting(l.dbWrapper);
+	info = &Info{}
+	dBWrapper.GetRecordByJobId(info, "NNEWWWW")
+	fmt.Printf("%+v\n\n", info)
+
+	info.JobId = "Hello"
+	dBWrapper.UpdateRecord(info)
+	dBWrapper.GetRecordByJobId(info, "Hello")
+	fmt.Printf("%+v\n\n", info)
+
+	info = &Info{}
+	dBWrapper.GetRecordByJobId(info, "NNEWWWW")
+	info.JobId = "Bro"
+	dBWrapper.UpdateRecord(info)
+
+	info = &Info{}
+	dBWrapper.GetRecordByJobId(info, "Bro")
+	fmt.Printf("%+v\n\n", info)
+
+	dBWrapper.DeleteRecord(info)
+
+	info = &Info{}
+	dBWrapper.GetRecordByJobId(info, "Bro")
+	fmt.Printf("%+v\n\n", info)	
+
+
+	infos = []Info{}
+	dBWrapper.GetRecordsThatPassedXSeconds(&infos, 20)
+	fmt.Printf("%+v\n\n", infos)
+
 }
