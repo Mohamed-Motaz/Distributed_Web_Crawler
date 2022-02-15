@@ -22,8 +22,9 @@ const portEnv string = "MY_PORT"
 func main(){
 	
 	port :=  os.Getenv(portEnv)
-	_, err := New(domain + ":" + port)
-
+	p, err := New(domain + ":" + port)
+	p.dbWrapper.DeleteAllRecords()
+	
 	if err != nil{
 		logger.FailOnError(logger.LOCK_SERVER, "Exiting becuase of error creating a lockServer: %v", err)
 	}
@@ -66,7 +67,6 @@ func New(port string) (*LockServer, error){
 
 	return lockServer, nil;
 }
-
 
 
 //
@@ -130,7 +130,7 @@ func (lockServer *LockServer) HandleGetJobs(args *RPC.GetJobArgs, reply *RPC.Get
 	return nil
 }
 
-func (lockServer *LockServer) HandleFinishedjobs(args *RPC.FinishedJobArgs, reply *RPC.FinishedJobReply) error {
+func (lockServer *LockServer) HandleFinishedJobs(args *RPC.FinishedJobArgs, reply *RPC.FinishedJobReply) error {
 	logger.LogInfo(logger.LOCK_SERVER, "A master just finished this job: \n%+v", args)
 
 	info := &database.Info{}

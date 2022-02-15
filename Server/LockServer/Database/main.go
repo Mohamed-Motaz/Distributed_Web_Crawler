@@ -4,6 +4,7 @@ import (
 	logger "Server/Cluster/Logger"
 	dbConfig "Server/LockServer/Database/Configurations"
 	"fmt"
+	"os"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -11,10 +12,10 @@ import (
 
 const (
 	host = dbConfig.Host
-	port = dbConfig.Port
 	user = dbConfig.User
 	password = dbConfig.Password
 	dbname = dbConfig.Dbname
+	DB_PORT = "DB_PORT"
 )
 
 
@@ -46,6 +47,7 @@ func (db *DBWrapper) Close(){
 }
 
 func connect() *gorm.DB{
+	port := os.Getenv(DB_PORT)
 
 	dsn := fmt.Sprintf(
 		"user=%v password=%v host=%v port=%v database=%v sslmode=disable",

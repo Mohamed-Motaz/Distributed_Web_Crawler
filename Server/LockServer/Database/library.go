@@ -28,6 +28,10 @@ func (db *DBWrapper) DeleteRecord(info *Info){
 	db.deleteRecord(info)
 }
 
+func (db *DBWrapper) DeleteAllRecords(){
+	db.deleteAllRecords(TABLE_NAME)
+}
+
 func (db *DBWrapper) GetRecordsThatPassedXSeconds(infos *[]Info, seconds int){
 	now := time.Now().UnixMilli() / 1000
 	start := now - int64(seconds)

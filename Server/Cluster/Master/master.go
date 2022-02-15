@@ -61,7 +61,6 @@ func main(){
 	}
 
 	//master.addJobsForTesting()
-	//go master.doCrawl("https://www.google.com/", 1)
 
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
@@ -314,9 +313,16 @@ func (master *Master) checkJobDone() {
 			//now send it over channel to qPublisher rabbit mq
 			
 
-
+			
 			master.publishCh <- true
-			<- master.publishChAck  //block till Publisher sends the message to the queue or fails to do so
+			success := <- master.publishChAck  //block till Publisher sends the message to the queue or fails to do so
+			
+			if success{
+				master.mu.Unlock()
+				master.attemptSendFinishedJobToLockServer()
+				master.mu.Lock()
+			}
+
 
 			master.resetMasterJobStatus(0)
 		}
@@ -350,13 +356,16 @@ func (master *Master) qPublisher() {
 			if err != nil{
 				logger.LogError(logger.MASTER, "Unable to convert result to string! Discarding...")
 			}else{
-				master.q.Publish(DONE_JOBS_QUEUE, res)
+				err = master.q.Publish(DONE_JOBS_QUEUE, res)
 				if err != nil{
 					logger.LogError(logger.MASTER, "DoneJob not published to queue with err %v", err)
+				}else{
+					logger.LogInfo(logger.MASTER, "DoneJob successfully published to queue")
 				}
 			}
+
 			
-			master.publishChAck <- true
+			master.publishChAck <- err == nil
 			
 		default:
 			time.Sleep(time.Second)
@@ -396,6 +405,7 @@ func (master *Master) qConsumer() {
 			err := json.Unmarshal(body, data)
 			if err != nil {
 				logger.LogError(logger.MASTER, "Unable to consume job with error %v\nWill discard it", err) 
+				newJob.Ack(false) //probably should just ack so it doesnt sit around in the queue forever
 				continue
 			}
 
@@ -438,6 +448,7 @@ func (master *Master) qConsumer() {
 			newJob.Nack(false, true)
 			
 		default:
+			logger.LogInfo(logger.MASTER, "No jobs found, about to sleep") 
 			time.Sleep(time.Second)
 		}
 		
@@ -447,6 +458,43 @@ func (master *Master) qConsumer() {
 
 }
 
+//
+//  attempt to send finished job to master 10 times at most
+//  if attempt fails, sleep for 1 second before retrying
+//
+
+func (master *Master) attemptSendFinishedJobToLockServer() bool {
+	ok := false
+	ctr := 1
+	mxRetries := 10
+
+	for !ok && ctr < mxRetries{
+
+		master.mu.Lock()
+		if !master.currentJob{
+			master.mu.Unlock()
+			break
+		}
+		master.mu.Unlock()
+
+		args := &RPC.FinishedJobArgs{
+			MasterId: master.id,
+			JobId: master.jobId,
+			URL: master.currentURL,
+		}
+		ok := master.callLockServer("LockServer.HandleFinishedJobs", args, &RPC.FinishedJobReply{}) //send data to lockServer
+
+		if !ok{
+			logger.LogError(logger.MASTER, "Attempt number %v to send finished job to lockServer unsuccessfull", ctr)
+		}else{
+			logger.LogInfo(logger.MASTER, "Attempt number %v to send finished job to lockServer successfull", ctr)
+			return true
+		}
+		ctr++
+		time.Sleep(time.Second)
+	}
+	return ok
+}
 
 func (master *Master) callLockServer(rpcName string, args interface{}, reply interface{}) bool {
 	ctr := 1
@@ -482,11 +530,11 @@ func (master *Master) callLockServer(rpcName string, args interface{}, reply int
 }
 
 func(master *Master) addJobsForTesting(){
-	json := `{"urlToCrawl":"https://www.google.com/","depthToCrawl":1}`
+	json := `{"jobId":"JOB1","urlToCrawl":"https://www.google.com/","depthToCrawl":3}`
 	master.q.Publish(JOBS_QUEUE, []byte(json))
-	json = `{"urlToCrawl":"https://www.facebook.com/","depthToCrawl":1}`
+	json = `{"jobId":"JOB2","urlToCrawl":"https://www.facebook.com/","depthToCrawl":3}`
 	master.q.Publish(JOBS_QUEUE, []byte(json))
-	json = `{"urlToCrawl":"https://www.instagram.com/","depthToCrawl":1}`
+	json = `{"jobId":"JOB3","urlToCrawl":"https://www.instagram.com/","depthToCrawl":3}`
 	master.q.Publish(JOBS_QUEUE, []byte(json))
 	master.q.Close()
 	os.Exit(1)

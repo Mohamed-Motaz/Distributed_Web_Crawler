@@ -102,8 +102,14 @@ func (mq *MQ) Consume(qName string) (<-chan amqp.Delivery, error) {
 		}
 		mq.jobsQ = &q
 	}
-	
-
+	err := mq.ch.Qos(
+		1,     // prefetch count
+		0,     // prefetch size
+		false, // global
+	)
+	if err != nil{
+		return nil, err
+	}
 	msgs, err := mq.ch.Consume(
 		mq.jobsQ.Name,
 		"", //consumer --> unique identifier that rabbit can just generate
