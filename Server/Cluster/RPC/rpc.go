@@ -4,7 +4,7 @@ package RPC
 // RPC definitions
 //
 
-//for master-worker communication
+//for master-worker communication -------------------------
 type GetTaskArgs struct{}
 
 type GetTaskReply struct{
@@ -23,20 +23,25 @@ type FinishedTaskReply struct{}
 
 
 
-//for master-lockserver communication
+//for master-lockserver communication -----------------------------
 type GetJobArgs struct{
-	Id string
+	MasterId string
+	JobId string
 	URL string   //url to crawl
-	JobNum int
+	DepthToCrawl int
 }
 
 type GetJobReply struct{
-	Accepted bool      //whether the lock server accepted or rejected the master's job request
+	Accepted bool      //whether the lock server accepted or rejected the master's job request	MasterId string
+	AlternateJob bool  //whether there is an alternate job with higher priority
+	JobId string       //details of alternate job
+	URL string   
+	DepthToCrawl int
 }
 
 type FinishedJobArgs struct{
-	Id int
-	JobNum int
+	MasterId string
+	JobId string
 	URL string
 }
 

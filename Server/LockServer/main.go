@@ -3,6 +3,8 @@ package main //LockServer
 import (
 	logger "Server/Cluster/Logger"
 	"Server/Cluster/RPC"
+	database "Server/LockServer/Database"
+	"fmt"
 	"net"
 	"net/http"
 	"net/rpc"
@@ -20,12 +22,22 @@ const portEnv string = "PORT"
 func main(){
 	
 	port :=  os.Getenv(portEnv)
-
-	_, err := New(domain + ":" + port)
+	l, err := New(domain + ":" + port)
 	
+	//database.ManualTesting(l.dbWrapper);
+	info := &database.Info{}
+	l.dbWrapper.GetRecordByJobId(info, "NNEWWWW")
+	fmt.Printf("%+v\n", info)
+
+
+	infos := []database.Info{}
+	l.dbWrapper.GetRecordsThatPassedXSeconds(&infos, 20)
+	fmt.Printf("%+v\n", infos)
+
 	if err != nil{
 		logger.FailOnError(logger.LOCK_SERVER, "Exiting becuase of error creating a lockServer: %v", err)
 	}
+
 
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
@@ -39,7 +51,7 @@ func main(){
 type LockServer struct{
 	id string
 	port string
-
+	dbWrapper *database.DBWrapper
 
 	mu sync.Mutex
 }
@@ -55,6 +67,7 @@ func New(port string) (*LockServer, error){
 	lockServer := &LockServer{
 		id: guid.String(),
 		port: port,
+		dbWrapper: database.New(),
 
 		mu: sync.Mutex{},
 	}
@@ -98,9 +111,31 @@ func (lockServer *LockServer) HandleGetJobs(args *RPC.GetJobArgs, reply *RPC.Get
 	logger.LogInfo(logger.LOCK_SERVER, "A master requested to be given a job %v", args)
 	reply.Accepted = false
 
-	lockServer.mu.Lock()
-	defer lockServer.mu.Unlock()
+	//check if there are any late jobs (20 sec) that need to be reassigned
+	secondsPassed := 60
+	infos := []database.Info{}
+	lockServer.dbWrapper.GetRecordsThatPassedXSeconds(&infos, secondsPassed)
 
+	if len(infos) != 0{
+		//found a job that had been assigned but is late
+		
+
+	}
+
+	//no late jobs present
+
+	//check the job isnt taken by any other master
+	info := &database.Info{}
+	lockServer.dbWrapper.GetRecordByJobId(info, args.JobId)
+
+	if info.Id == 0{
+		//no job present, can safely send assign this job to this master
+		reply.Accepted = true
+		return nil
+	}
+
+	//job is present and another master has been assigned it
+	//check the date on it
 
 	//if {
 	//	logger.LogDelay(logger.LOCK_SERVER, 
@@ -117,41 +152,41 @@ func (lockServer *LockServer) HandleFinishedjobs(args *RPC.FinishedJobArgs, repl
 	lockServer.mu.Lock()
 	defer lockServer.mu.Unlock()
 
-	if lockServer.currentDepth >= lockServer.jobRequiredDepth{
-		logger.LogDelay(logger.LOCK_SERVER, 
-			"A worker has finished a job %v but we have already finished the job", args.URL)
-		return nil
-	} 
+	// if lockServer.currentDepth >= lockServer.jobRequiredDepth{
+	// 	logger.LogDelay(logger.LOCK_SERVER, 
+	// 		"A worker has finished a job %v but we have already finished the job", args.URL)
+	// 	return nil
+	// } 
 
-	if !lockServer.currentJob {
-		logger.LogDelay(logger.LOCK_SERVER, 
-			"A worker finished a late job %v for job num %v but there is no current job",
-			args.URL, args.JobNum)
-		return nil
-	}
+	// if !lockServer.currentJob {
+	// 	logger.LogDelay(logger.LOCK_SERVER, 
+	// 		"A worker finished a late job %v for job num %v but there is no current job",
+	// 		args.URL, args.JobNum)
+	// 	return nil
+	// }
 
-	if (lockServer.URLsjobs[lockServer.currentDepth][args.URL] == jobDone){
-		//already finished, do nothing
-		logger.LogDelay(logger.LOCK_SERVER, "Worker has finished this job with jobNum %v and URL %v " +
-							"which was already finished", args.JobNum, args.URL)
-		return nil
-	}	
+	// if (lockServer.URLsjobs[lockServer.currentDepth][args.URL] == jobDone){
+	// 	//already finished, do nothing
+	// 	logger.LogDelay(logger.LOCK_SERVER, "Worker has finished this job with jobNum %v and URL %v " +
+	// 						"which was already finished", args.JobNum, args.URL)
+	// 	return nil
+	// }	
 
-	logger.LogjobDone(logger.LOCK_SERVER, "A worker just finished this job: \n" +
-		"JobNum: %v \nURL: %v \nURLsLen :%v", 
-		args.JobNum, args.URL, len(args.URLs))
+	// logger.LogjobDone(logger.LOCK_SERVER, "A worker just finished this job: \n" +
+	// 	"JobNum: %v \nURL: %v \nURLsLen :%v", 
+	// 	args.JobNum, args.URL, len(args.URLs))
 
-	lockServer.URLsjobs[lockServer.currentDepth][args.URL] = jobDone //set the job as done
+	// lockServer.URLsjobs[lockServer.currentDepth][args.URL] = jobDone //set the job as done
 
 
-	if lockServer.currentDepth + 1 < lockServer.jobRequiredDepth{
-		//add all urls to the URLsjobs next depth and set their jobs as available
-		for _, v := range args.URLs{
-			if (!lockServer.urlInjobs(v, args.URL)){
-				lockServer.URLsjobs[lockServer.currentDepth + 1][v] = jobAvailable
-			}	
-		}
-	}
+	// if lockServer.currentDepth + 1 < lockServer.jobRequiredDepth{
+	// 	//add all urls to the URLsjobs next depth and set their jobs as available
+	// 	for _, v := range args.URLs{
+	// 		if (!lockServer.urlInjobs(v, args.URL)){
+	// 			lockServer.URLsjobs[lockServer.currentDepth + 1][v] = jobAvailable
+	// 		}	
+	// 	}
+	// }
 	
 	return nil
 }
