@@ -18,7 +18,7 @@ import (
 
 
 var masterDomain string = "127.0.0.1"
-const portEnv string = "PORT"
+const portEnv string = "MASTER_PORT"
 
 func main(){
 	

@@ -21,7 +21,8 @@ import (
 )
 
 var domain string = "127.0.0.1"
-const portEnv string = "PORT"
+const portEnv string = "MY_PORT"
+const portLockSever string = "LOCK_SERVER_PORT"
 const 
 (
 	TaskAvailable = iota
@@ -35,11 +36,13 @@ const DONE_JOBS_QUEUE = "doneJobs"
 
 
 type Job struct{
+	JobId string			`json:"jobId"`
 	UrlToCrawl string		`json:"urlToCrawl"`
 	DepthToCrawl int  		`json:"depthToCrawl"`
 }
 
 type DoneJob struct{
+	JobId string			`json:"jobId"`
 	UrlToCrawl string		`json:"urlToCrawl"`
 	DepthToCrawl int  		`json:"depthToCrawl"`
 	Results [][]string		`json:"results"`
@@ -48,9 +51,10 @@ type DoneJob struct{
 
 func main(){
 	port :=  os.Getenv(portEnv)
+	lockServerPort := os.Getenv(portLockSever)
 	// logger.LogDebug(logger.WORKER, "the master port %v", port)
 
-	master, err := New(domain + ":" + port)
+	master, err := New(domain + ":" + port, domain + ":" + lockServerPort)
 	
 	if err != nil{
 		logger.FailOnError(logger.CLUSTER, "Exiting becuase of error creating a master: %v", err)
@@ -71,8 +75,10 @@ func main(){
 type Master struct{
 	id string
 	port string
+	lockServerPort string
 
 	jobNum int       						//job number to keep track of current job
+	jobId string
 	jobRequiredDepth int   					//required depth to traverse
 						   					//min is 1, in which case I just crawl a single page and return the results
 
@@ -94,7 +100,7 @@ type Master struct{
 }
 
 
-func New(port string) (*Master, error){
+func New(port string, lockServerPort string) (*Master, error){
 	guid, err := uuid.NewRandom()
 	if err != nil{
 		logger.LogError(logger.MASTER, "Error generationg uuid: %v", err)
@@ -104,7 +110,9 @@ func New(port string) (*Master, error){
 	master := &Master{
 		id: guid.String(),
 		port: port,
+		lockServerPort: lockServerPort,
 		jobNum: 0,
+		jobId: "",
 		jobRequiredDepth: 0,
 		currentJob: false,
 		currentURL: "",
@@ -135,7 +143,7 @@ func New(port string) (*Master, error){
 
 
 //in the future, will take the work from rabbitmq
-func (master *Master) doCrawl(url string, depth int) {
+func (master *Master) doCrawl(url string, depth int, jobId string) {
 	//TODO clear up all the data from the previous crawl
 
 	logger.LogInfo(logger.MASTER, 
@@ -158,6 +166,7 @@ func (master *Master) doCrawl(url string, depth int) {
 	master.currentDepth = 0
 
 	master.jobNum++
+	master.jobId = jobId
 	master.jobRequiredDepth = depth
 
 	master.URLsTasks[0][url] = TaskAvailable  //set task as available to be given to servers
@@ -170,6 +179,7 @@ func (master *Master) doCrawl(url string, depth int) {
 //
 func (master *Master) resetMasterJobStatus(depth int){
 	master.jobRequiredDepth = 0
+	master.jobId = ""
 
 	master.currentJob = false
 	master.currentURL = ""
@@ -330,6 +340,7 @@ func (master *Master) qPublisher() {
 			URLsList := utils.ConvertMapArrayToList(master.URLsTasks)
 			
 			fin := &DoneJob{
+				JobId: master.jobId,
 				UrlToCrawl: master.currentURL,
 				DepthToCrawl: master.jobRequiredDepth,
 				Results: URLsList,
@@ -384,20 +395,47 @@ func (master *Master) qConsumer() {
 			
 			err := json.Unmarshal(body, data)
 			if err != nil {
-				logger.LogError(logger.MASTER, "Unable to consume job with error %v\nWill discard it") 
+				logger.LogError(logger.MASTER, "Unable to consume job with error %v\nWill discard it", err) 
 				continue
 			}
 
-			//TODO ask lockserver if i can get it
-			newJob.Ack(false)
+			//ask lockserver if i can get it
+			args := &RPC.GetJobArgs{
+				MasterId: master.id,
+				JobId: data.JobId,
+				URL: data.UrlToCrawl,
+				Depth: data.DepthToCrawl,
+			}
+			reply := &RPC.GetJobReply{}
+			ok := master.callLockServer("LockServer.HandleGetJobs", args, reply)
+			if !ok{
+				logger.LogError(logger.MASTER, "Unable to contact lockserver to ask about job with error %v\nWill discard it", err) 
+				newJob.Nack(false, true)
+			}
 
 			//just to make sure not to accept more than 1 job at a time
 			master.mu.Lock()
 			master.currentJob = true
 			master.mu.Unlock()
 
-			go master.doCrawl(data.UrlToCrawl, data.DepthToCrawl)
+			if reply.Accepted{
+				//use data
+				logger.LogInfo(logger.MASTER, "LockServer accepted job request %+v", args) 
+				newJob.Ack(false)
+				go master.doCrawl(data.UrlToCrawl, data.DepthToCrawl, data.JobId)
+				continue
+			}
 
+			if reply.AlternateJob{
+				//use reply 
+				logger.LogInfo(logger.MASTER, "LockServer provided alternative job %+v", reply) 
+				newJob.Nack(false, true)
+				go master.doCrawl(reply.URL, reply.Depth, reply.JobId)
+				continue
+			}
+				
+			//job not accepted
+			newJob.Nack(false, true)
 			
 		default:
 			time.Sleep(time.Second)
@@ -409,6 +447,39 @@ func (master *Master) qConsumer() {
 
 }
 
+
+func (master *Master) callLockServer(rpcName string, args interface{}, reply interface{}) bool {
+	ctr := 1
+	successfullConnection := false
+	var client *rpc.Client
+	var err error 
+
+	//attempt to conncect to master
+	for ctr <= 3 && !successfullConnection{
+		client, err = rpc.DialHTTP("tcp", master.lockServerPort)  //blocking
+		if err != nil{
+			logger.LogError(logger.WORKER, "Attempt number %v of dialing lockServer failed with error: %v\n", ctr,err)
+			time.Sleep(2 * time.Second)
+		}else{
+			successfullConnection = true
+		}
+		ctr++
+	}
+	if !successfullConnection{
+		logger.FailOnError(logger.WORKER, "Error dialing http: %v\nFatal Error: Can't establish connection to lockServer. Exiting now", err)
+	}
+
+	defer client.Close()
+
+	err = client.Call(rpcName, args, reply)
+
+	if err != nil{
+		logger.LogError(logger.WORKER, "Unable to call lockServer with RPC with error: %v", err)
+		return false
+	}
+
+	return true
+}
 
 func(master *Master) addJobsForTesting(){
 	json := `{"urlToCrawl":"https://www.google.com/","depthToCrawl":1}`
