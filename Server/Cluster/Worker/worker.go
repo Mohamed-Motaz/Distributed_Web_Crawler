@@ -17,14 +17,25 @@ import (
 
 
 
-var masterDomain string = "127.0.0.1"
-const portEnv string = "MASTER_PORT"
+const MASTER_PORT string = 				"MASTER_PORT"
+const MASTER_HOST string = 				"MASTER_HOST"
+const LOCAL_HOST string = 				"127.0.0.1"
+
+
+var masterHost string = 			getEnv(MASTER_HOST, LOCAL_HOST)
+
+var masterPort string =				os.Getenv(MASTER_PORT)
+
+func getEnv(key, fallback string) string {
+    if value, ok := os.LookupEnv(key); ok {
+        return value
+    }
+    return fallback
+}
 
 func main(){
 	
-	masterPort :=  os.Getenv(portEnv)
-	// logger.LogDebug(logger.WORKER, "the master port %v", masterPort)
-	_, err := MakeWorker(masterDomain + ":" + masterPort)
+	_, err := MakeWorker(masterHost, masterPort)
 
 	if err != nil{
 		logger.FailOnError(logger.WORKER, "Exiting becuase of error during worker creation: %v", err)
@@ -39,7 +50,7 @@ func main(){
 
 type Worker struct {
 	Id string
-	masterPort string
+	masterAddress string
 
 	currentJob bool   //currently working on a job
 	currentJobNum int //num of currentJob, -1 if none
@@ -54,7 +65,7 @@ type Worker struct {
 
 
 
-func MakeWorker(port string) (*Worker, error) {
+func MakeWorker(masterHost, masterPort string) (*Worker, error) {
 	guid, err := uuid.NewRandom()
 
 	if err != nil{
@@ -63,7 +74,7 @@ func MakeWorker(port string) (*Worker, error) {
 	}
 	worker := &Worker{
 		Id: guid.String(),
-		masterPort: port,
+		masterAddress: masterHost + ":" + masterPort,
 		currentJob: false,
 		currentJobNum: -1,
 		currentURL: "",
@@ -284,7 +295,7 @@ func (worker *Worker) callMaster(rpcName string, args interface{}, reply interfa
 
 	//attempt to conncect to master
 	for ctr <= 3 && !successfullConnection{
-		client, err = rpc.DialHTTP("tcp", worker.masterPort)  //blocking
+		client, err = rpc.DialHTTP("tcp", worker.masterAddress)  //blocking
 		if err != nil{
 			logger.LogError(logger.WORKER, "Attempt number %v of dialing master failed with error: %v\n", ctr,err)
 			time.Sleep(2 * time.Second)

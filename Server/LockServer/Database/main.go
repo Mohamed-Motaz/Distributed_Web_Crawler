@@ -4,14 +4,12 @@ import (
 	logger "Server/Cluster/Logger"
 	dbConfig "Server/LockServer/Database/Configurations"
 	"fmt"
-	"os"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
 const (
-	host = dbConfig.Host
 	user = dbConfig.User
 	password = dbConfig.Password
 	dbname = dbConfig.Dbname
@@ -34,8 +32,8 @@ type DBWrapper struct{
 
 //return a thread-safe *gorm.DB that can safely be used 
 //by multiple goroutines
-func New() *DBWrapper{
-	db := connect()
+func New(myHost, myPort string) *DBWrapper{
+	db := connect(myHost, myPort)
 	setUp(db)
 	logger.LogInfo(logger.DATABASE, "Db setup complete")
 	return &DBWrapper{
@@ -46,12 +44,11 @@ func New() *DBWrapper{
 func (db *DBWrapper) Close(){
 }
 
-func connect() *gorm.DB{
-	port := os.Getenv(DB_PORT)
+func connect(myHost, myPort string) *gorm.DB{
 
 	dsn := fmt.Sprintf(
 		"user=%v password=%v host=%v port=%v database=%v sslmode=disable",
-		user, password, host, port, dbname)
+		user, password, myHost, myPort, dbname)
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil{

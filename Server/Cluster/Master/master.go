@@ -20,9 +20,28 @@ import (
 	"github.com/google/uuid"
 )
 
-var domain string = "127.0.0.1"
-const portEnv string = "MY_PORT"
-const portLockSever string = "LOCK_SERVER_PORT"
+const MY_PORT string = 				"MY_PORT"
+const MY_HOST string =				"MY_HOST"
+const LOCK_SERVER_PORT string = 	"LOCK_SERVER_PORT"
+const LOCK_SERVER_HOST string = 	"LOCK_SERVER_HOST"
+const MQ_HOST string = 				"MQ_HOST"
+const LOCAL_HOST string = 			"127.0.0.1"
+
+
+var myHost string = 				getEnv(MY_HOST, LOCAL_HOST) 
+var lockServerHost string = 		getEnv(LOCK_SERVER_HOST, LOCAL_HOST)
+var mqHost string = 				getEnv(MQ_HOST, LOCAL_HOST)
+
+var myPort string =  				os.Getenv(MY_PORT)
+var lockServerPort string = 		os.Getenv(LOCK_SERVER_PORT)
+
+func getEnv(key, fallback string) string {
+    if value, ok := os.LookupEnv(key); ok {
+        return value
+    }
+    return fallback
+}
+
 const 
 (
 	TaskAvailable = iota
@@ -49,12 +68,9 @@ type DoneJob struct{
 }
 
 
-func main(){
-	port :=  os.Getenv(portEnv)
-	lockServerPort := os.Getenv(portLockSever)
-	// logger.LogDebug(logger.WORKER, "the master port %v", port)
+func main(){	
 
-	master, err := New(domain + ":" + port, domain + ":" + lockServerPort)
+	master, err := New(myHost, myPort, lockServerHost, lockServerPort)
 	
 	if err != nil{
 		logger.FailOnError(logger.CLUSTER, "Exiting becuase of error creating a master: %v", err)
@@ -73,8 +89,8 @@ func main(){
 
 type Master struct{
 	id string
-	port string
-	lockServerPort string
+	address string
+	lockServerAddress string
 
 	jobNum int       						//job number to keep track of current job
 	jobId string
@@ -99,7 +115,7 @@ type Master struct{
 }
 
 
-func New(port string, lockServerPort string) (*Master, error){
+func New(myHost, myPort, lockServerHost, lockServerPort string) (*Master, error){
 	guid, err := uuid.NewRandom()
 	if err != nil{
 		logger.LogError(logger.MASTER, "Error generationg uuid: %v", err)
@@ -108,8 +124,8 @@ func New(port string, lockServerPort string) (*Master, error){
 
 	master := &Master{
 		id: guid.String(),
-		port: port,
-		lockServerPort: lockServerPort,
+		address: myHost + ":" + myPort,
+		lockServerAddress: lockServerHost + ":" + lockServerPort,
 		jobNum: 0,
 		jobId: "",
 		jobRequiredDepth: 0,
@@ -118,7 +134,7 @@ func New(port string, lockServerPort string) (*Master, error){
 		currentDepth: 0,
 		URLsTasks: make([]map[string]int, 0),
 		workersTimers: make([]map[string]time.Time, 0),
-		q: mq.New("amqp://guest:guest@localhost:5672/"),  //os.Getenv("AMQP_URL"))
+		q: mq.New("amqp://guest:guest@" + mqHost + ":5672/"),  //os.Getenv("AMQP_URL"))
 		publishCh: make(chan bool),
 		consumeCh: make(chan bool),
 		publishChAck: make(chan bool),
@@ -202,8 +218,8 @@ func (master *Master) server() error{
 	rpc.HandleHTTP()
 
 	
-	os.Remove(master.port)
-	listener, err := net.Listen("tcp", master.port)
+	os.Remove(master.address)
+	listener, err := net.Listen("tcp", master.address)
 
 
 	if err != nil {
@@ -211,7 +227,7 @@ func (master *Master) server() error{
 
 	}
 
-	logger.LogInfo(logger.MASTER, "Listening on socket: %v", master.port)
+	logger.LogInfo(logger.MASTER, "Listening on socket: %v", master.address)
 
 	go http.Serve(listener, nil)
 	return nil
@@ -391,7 +407,7 @@ func (master *Master) qConsumer() {
 		master.mu.Lock()
 		if master.currentJob{  //there is a current job, so dont try to pull a new one
 			master.mu.Unlock()
-			time.Sleep(time.Second)
+			time.Sleep(time.Second * 5)
 			continue
 		}else{
 			master.mu.Unlock()
@@ -415,6 +431,7 @@ func (master *Master) qConsumer() {
 			master.mu.Lock()
 			id := master.id
 			master.mu.Unlock()
+
 			args := &RPC.GetJobArgs{
 				MasterId: id,
 				JobId: data.JobId,
@@ -427,6 +444,7 @@ func (master *Master) qConsumer() {
 			if !ok{
 				logger.LogError(logger.MASTER, "Unable to contact lockserver to ask about job with error %v\nWill discard it", err) 
 				newJob.Nack(false, true)
+				continue
 			}
 
 
@@ -454,26 +472,24 @@ func (master *Master) qConsumer() {
 			master.mu.Lock()
 			id := master.id
 			master.mu.Unlock()
+
 			args := &RPC.GetJobArgs{
 				MasterId: id,
 				NoCurrentJob: true,
 			}
 			reply := &RPC.GetJobReply{}
 			ok := master.callLockServer("LockServer.HandleGetJobs", args, reply)
-			if ok{
-				if reply.AlternateJob{
+			if ok && reply.AlternateJob{
 					//there is indeed an outstanding job
 					logger.LogInfo(logger.MASTER, "LockServer provided outstanding job %+v", reply) 
 					master.startJob(reply.URL, reply.Depth, reply.JobId)
 					continue
-				}
 			}
+
 			logger.LogInfo(logger.MASTER, "No jobs found, about to sleep") 
 			time.Sleep(time.Second * 5)
 		}
 		
-
-
 	}
 
 }
@@ -532,9 +548,9 @@ func (master *Master) callLockServer(rpcName string, args interface{}, reply int
 
 	//attempt to conncect to master
 	for ctr <= 3 && !successfullConnection{
-		client, err = rpc.DialHTTP("tcp", master.lockServerPort)  //blocking
+		client, err = rpc.DialHTTP("tcp", master.lockServerAddress)  //blocking
 		if err != nil{
-			logger.LogError(logger.WORKER, "Attempt number %v of dialing lockServer failed with error: %v\n", ctr,err)
+			logger.LogError(logger.MASTER, "Attempt number %v of dialing lockServer failed with error: %v\n", ctr,err)
 			time.Sleep(2 * time.Second)
 		}else{
 			successfullConnection = true
@@ -542,7 +558,7 @@ func (master *Master) callLockServer(rpcName string, args interface{}, reply int
 		ctr++
 	}
 	if !successfullConnection{
-		logger.FailOnError(logger.WORKER, "Error dialing http: %v\nFatal Error: Can't establish connection to lockServer. Exiting now", err)
+		logger.FailOnError(logger.MASTER, "Error dialing http: %v\nFatal Error: Can't establish connection to lockServer. Exiting now", err)
 	}
 
 	defer client.Close()
@@ -550,7 +566,7 @@ func (master *Master) callLockServer(rpcName string, args interface{}, reply int
 	err = client.Call(rpcName, args, reply)
 
 	if err != nil{
-		logger.LogError(logger.WORKER, "Unable to call lockServer with RPC with error: %v", err)
+		logger.LogError(logger.MASTER, "Unable to call lockServer with RPC with error: %v", err)
 		return false
 	}
 
@@ -598,7 +614,7 @@ func (master *Master) debug(){
 //
 func generatePortNum() (int, *net.Listener, error){
 	for i := 8000; i <= 9000; i++{
-		listener, err := net.Listen("tcp", domain + ":" + strconv.Itoa(i))
+		listener, err := net.Listen("tcp", myHost + ":" + strconv.Itoa(i))
 		if err != nil{
 			continue
 		}

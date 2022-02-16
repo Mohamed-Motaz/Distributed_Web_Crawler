@@ -16,13 +16,28 @@ import (
 	"github.com/google/uuid"
 )
 
-var domain string = "127.0.0.1"
-const portEnv string = "MY_PORT"
+const MY_PORT string = 			"MY_PORT"
+const MY_HOST string =			"MY_HOST"
+const DB_PORT string = 			"DB_PORT"
+const DB_HOST string = 			"DB_HOST"
+const LOCAL_HOST string = 		"127.0.0.1"
+
+var myHost string = 			getEnv(MY_HOST, LOCAL_HOST) 
+var dbHost string = 			getEnv(DB_HOST, LOCAL_HOST)
+
+var myPort string =  			os.Getenv(MY_PORT)
+var dbPort string = 			os.Getenv(DB_PORT)
+
+func getEnv(key, fallback string) string {
+    if value, ok := os.LookupEnv(key); ok {
+        return value
+    }
+    return fallback
+}
 
 func main(){
-	
-	port :=  os.Getenv(portEnv)
-	p, err := New(domain + ":" + port)
+
+	p, err := New(myHost, myPort, dbHost, dbPort)
 	p.dbWrapper.DeleteAllRecords()
 	
 	if err != nil{
@@ -41,14 +56,14 @@ func main(){
 
 type LockServer struct{
 	id string
-	port string
+	address string
 	dbWrapper *database.DBWrapper
 
 	mu sync.Mutex
 }
 
 
-func New(port string) (*LockServer, error){
+func New(myHost, myPort, dbHost, dbPort string) (*LockServer, error){
 	guid, err := uuid.NewRandom()
 	if err != nil{
 		logger.LogError(logger.LOCK_SERVER, "Error generationg uuid: %v", err)
@@ -57,8 +72,8 @@ func New(port string) (*LockServer, error){
 
 	lockServer := &LockServer{
 		id: guid.String(),
-		port: port,
-		dbWrapper: database.New(),
+		address: myHost + ":" + myPort,
+		dbWrapper: database.New(dbHost, dbPort),
 
 		mu: sync.Mutex{},
 	}
@@ -77,8 +92,8 @@ func (lockServer *LockServer) server() error{
 	rpc.HandleHTTP()
 
 	
-	os.Remove(lockServer.port)
-	listener, err := net.Listen("tcp", lockServer.port)
+	os.Remove(lockServer.address)
+	listener, err := net.Listen("tcp", lockServer.address)
 
 
 	if err != nil {
@@ -86,7 +101,7 @@ func (lockServer *LockServer) server() error{
 
 	}
 
-	logger.LogInfo(logger.LOCK_SERVER, "Listening on socket: %v", lockServer.port)
+	logger.LogInfo(logger.LOCK_SERVER, "Listening on socket: %v", lockServer.address)
 
 	go http.Serve(listener, nil)
 	return nil

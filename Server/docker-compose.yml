@@ -1,62 +1,104 @@
 version: "3.9" # optional since v1.27.0
 services:
-  database:
-    container_name: database
-    network_mode: "host"
+  postgres:
+    container_name: postgres_container
+    # network_mode: "host"
+    networks:
+      - web_crawler_network
     image: postgres:latest
     restart: always
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=password
       - POSTGRES_DB=DistributedWebCrawler
-    # ports:
-    #   - 5432:5432
+    ports:
+      - 5432:5432
     volumes:
-      - ~/docker-conf/postgresql/data/:/var/lib/postgresql/data 
+      - ~/docker-conf/postgresql/data/:/var/lib/postgresql/data
 
   rabbitmq:
     image: rabbitmq:3-management-alpine
-    network_mode: "host"
-    # ports:
-    #   - 5672:5672
-    #   - 15672:15672
+    # network_mode: "host"
+    networks:
+      - web_crawler_network
+    ports:
+      - 5672:5672
+      - 15672:15672
     volumes:
       - ~/docker-conf/rabbitmq/data/:/var/lib/rabbitmq/
       - ~/docker-conf/rabbitmq/log/:/var/log/rabbitmq
 
-  # CLUSTER 1  ---------------------------------------------------
-  master:
-    network_mode: "host"
+  # LOCK_SERVER --------------------------------------------------
+  lock_server:
+    # network_mode: "host"
+    networks:
+      - web_crawler_network
     environment:
-      - PORT=7777
+      - MY_PORT=9999
+      - MY_HOST=lock_server
+      - DB_PORT=5432
+      - DB_HOST=postgres
+    ports:
+      - 9999:9999
+    build:
+      #    network: host
+      context: ./
+      dockerfile: ./lockServer/Dockerfile
+
+  # CLUSTER 1  ---------------------------------------------------
+  master1:
+    # network_mode: "host"
+    networks:
+      - web_crawler_network
+    environment:
+      - MY_PORT=7777
+      - MY_HOST=master1
+      - LOCK_SERVER_PORT=9999
+      - LOCK_SERVER_HOST=lock_server
+      - MQ_HOST=rabbitmq
+    ports:
+      - 7777:7777
     build:
       #    network: host
       context: ./
       dockerfile: ./cluster/master/Dockerfile
 
   worker1:
-    network_mode: "host"
+    # network_mode: "host"
+    networks:
+      - web_crawler_network
     environment:
-      - PORT=7777
+      - MASTER_PORT=7777
+      - MASTER_HOST=master1
     build:
       #    network: host
       context: ./
       dockerfile: ./cluster/worker/Dockerfile
 
   worker2:
-    network_mode: "host"
+    # network_mode: "host"
+    networks:
+      - web_crawler_network
     environment:
-      - PORT=7777
+      - MASTER_PORT=7777
+      - MASTER_HOST=master1
     build:
       #    network: host
       context: ./
       dockerfile: ./cluster/worker/Dockerfile
 
   worker3:
-    network_mode: "host"
+    # network_mode: "host"
+    networks:
+      - web_crawler_network
     environment:
-      - PORT=7777
+      - MASTER_PORT=7777
+      - MASTER_HOST=master1
+
     build:
       #    network: host
       context: ./
       dockerfile: ./cluster/worker/Dockerfile
+networks:
+  web_crawler_network:
+    driver: bridge
