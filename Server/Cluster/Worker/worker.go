@@ -1,9 +1,9 @@
 package main
 
 import (
-	crawling "Server/Cluster/Functionality"
-	logger "Server/Cluster/Logger"
-	"Server/Cluster/RPC"
+	logger "Distributed_Web_Crawler/Logger"
+	crawling "Distributed_Web_Crawler/Server/Cluster/Functionality"
+	"Distributed_Web_Crawler/Server/Cluster/RPC"
 	"math/rand"
 	"net/rpc"
 	"os"

@@ -1,10 +1,10 @@
 package main
 
 import (
-	logger "Server/Cluster/Logger"
-	"Server/Cluster/RPC"
-	utils "Server/Cluster/Utils"
-	mq "Server/MessageQueue"
+	logger "Distributed_Web_Crawler/Logger"
+	mq "Distributed_Web_Crawler/MessageQueue"
+	"Distributed_Web_Crawler/Server/Cluster/RPC"
+	utils "Distributed_Web_Crawler/Server/Cluster/Utils"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -24,6 +24,7 @@ const MY_PORT string = 				"MY_PORT"
 const MY_HOST string =				"MY_HOST"
 const LOCK_SERVER_PORT string = 	"LOCK_SERVER_PORT"
 const LOCK_SERVER_HOST string = 	"LOCK_SERVER_HOST"
+const MQ_PORT string = 				"MQ_PORT"
 const MQ_HOST string = 				"MQ_HOST"
 const LOCAL_HOST string = 			"127.0.0.1"
 
@@ -33,6 +34,7 @@ var lockServerHost string = 		getEnv(LOCK_SERVER_HOST, LOCAL_HOST)
 var mqHost string = 				getEnv(MQ_HOST, LOCAL_HOST)
 
 var myPort string =  				os.Getenv(MY_PORT)
+var mqPort string =  				os.Getenv(MQ_PORT)
 var lockServerPort string = 		os.Getenv(LOCK_SERVER_PORT)
 
 func getEnv(key, fallback string) string {
@@ -70,7 +72,7 @@ type DoneJob struct{
 
 func main(){	
 
-	master, err := New(myHost, myPort, lockServerHost, lockServerPort)
+	master, err := New(myHost, myPort, lockServerHost, lockServerPort, mqHost, mqPort)
 	
 	if err != nil{
 		logger.FailOnError(logger.CLUSTER, "Exiting becuase of error creating a master: %v", err)
@@ -115,7 +117,7 @@ type Master struct{
 }
 
 
-func New(myHost, myPort, lockServerHost, lockServerPort string) (*Master, error){
+func New(myHost, myPort, lockServerHost, lockServerPort, mqHost, mqPort string) (*Master, error){
 	guid, err := uuid.NewRandom()
 	if err != nil{
 		logger.LogError(logger.MASTER, "Error generationg uuid: %v", err)
@@ -134,7 +136,7 @@ func New(myHost, myPort, lockServerHost, lockServerPort string) (*Master, error)
 		currentDepth: 0,
 		URLsTasks: make([]map[string]int, 0),
 		workersTimers: make([]map[string]time.Time, 0),
-		q: mq.New("amqp://guest:guest@" + mqHost + ":5672/"),  //os.Getenv("AMQP_URL"))
+		q: mq.New("amqp://guest:guest@" + mqHost + ":" + mqPort + "/"),  //os.Getenv("AMQP_URL"))
 		publishCh: make(chan bool),
 		consumeCh: make(chan bool),
 		publishChAck: make(chan bool),

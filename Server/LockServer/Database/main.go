@@ -1,8 +1,8 @@
 package database
 
 import (
-	logger "Server/Cluster/Logger"
-	dbConfig "Server/LockServer/Database/Configurations"
+	logger "Distributed_Web_Crawler/Logger"
+	dbConfig "Distributed_Web_Crawler/Server/LockServer/Database/Configurations"
 	"fmt"
 
 	"gorm.io/driver/postgres"

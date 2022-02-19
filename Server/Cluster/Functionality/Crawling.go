@@ -1,8 +1,8 @@
 package Crawling
 
 import (
-	logger "Server/Cluster/Logger"
-	utils "Server/Cluster/Utils"
+	logger "Distributed_Web_Crawler/Logger"
+	utils "Distributed_Web_Crawler/Server/Cluster/Utils"
 	"net/http"
 
 	"golang.org/x/net/html"

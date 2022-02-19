@@ -1,9 +1,9 @@
 package main //LockServer
 
 import (
-	logger "Server/Cluster/Logger"
-	"Server/Cluster/RPC"
-	database "Server/LockServer/Database"
+	logger "Distributed_Web_Crawler/Logger"
+	"Distributed_Web_Crawler/Server/Cluster/RPC"
+	database "Distributed_Web_Crawler/Server/LockServer/Database"
 	"net"
 	"net/http"
 	"net/rpc"

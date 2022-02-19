@@ -63,7 +63,7 @@ services:
       context: ./
       dockerfile: ./cluster/master/Dockerfile
 
-  worker1:
+  worker11:
     # network_mode: "host"
     networks:
       - web_crawler_network
@@ -75,7 +75,7 @@ services:
       context: ./
       dockerfile: ./cluster/worker/Dockerfile
 
-  worker2:
+  worker12:
     # network_mode: "host"
     networks:
       - web_crawler_network
@@ -87,7 +87,7 @@ services:
       context: ./
       dockerfile: ./cluster/worker/Dockerfile
 
-  worker3:
+  worker13:
     # network_mode: "host"
     networks:
       - web_crawler_network
