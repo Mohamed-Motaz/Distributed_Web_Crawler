@@ -52,22 +52,7 @@ const
 )
 
 
-const JOBS_QUEUE = "jobs"
-const DONE_JOBS_QUEUE = "doneJobs"
 
-
-type Job struct{
-	JobId string			`json:"jobId"`
-	UrlToCrawl string		`json:"urlToCrawl"`
-	DepthToCrawl int  		`json:"depthToCrawl"`
-}
-
-type DoneJob struct{
-	JobId string			`json:"jobId"`
-	UrlToCrawl string		`json:"urlToCrawl"`
-	DepthToCrawl int  		`json:"depthToCrawl"`
-	Results [][]string		`json:"results"`
-}
 
 
 func main(){	
@@ -363,7 +348,7 @@ func (master *Master) qPublisher() {
 		case <- master.publishCh:
 			URLsList := utils.ConvertMapArrayToList(master.URLsTasks)
 			
-			fin := &DoneJob{
+			fin := &mq.DoneJob{
 				JobId: master.jobId,
 				UrlToCrawl: master.currentURL,
 				DepthToCrawl: master.jobRequiredDepth,
@@ -374,7 +359,7 @@ func (master *Master) qPublisher() {
 			if err != nil{
 				logger.LogError(logger.MASTER, "Unable to convert result to string! Discarding...")
 			}else{
-				err = master.q.Publish(DONE_JOBS_QUEUE, res)
+				err = master.q.Publish(mq.DONE_JOBS_QUEUE, res)
 				if err != nil{
 					logger.LogError(logger.MASTER, "DoneJob not published to queue with err %v", err)
 				}else{
@@ -398,7 +383,7 @@ func (master *Master) qPublisher() {
 // start a thread that waits on a job from the message queue
 //
 func (master *Master) qConsumer() {
-	ch, err := master.q.Consume(JOBS_QUEUE)
+	ch, err := master.q.Consume(mq.JOBS_QUEUE)
 	time.Sleep(2 * time.Second) //sleep for 2 seconds to await lockServer waking up
 
 	if err != nil{
@@ -420,7 +405,7 @@ func (master *Master) qConsumer() {
 		case newJob := <- ch:  //and I am available to get one
 			//new job arrived
 			body := newJob.Body
-			data := &Job{}
+			data := &mq.Job{}
 			
 			err := json.Unmarshal(body, data)
 			if err != nil {
@@ -577,11 +562,11 @@ func (master *Master) callLockServer(rpcName string, args interface{}, reply int
 
 func(master *Master) addJobsForTesting(){
 	json := `{"jobId":"JOB1","urlToCrawl":"https://www.google.com/","depthToCrawl":2}`
-	master.q.Publish(JOBS_QUEUE, []byte(json))
+	master.q.Publish(mq.JOBS_QUEUE, []byte(json))
 	json = `{"jobId":"JOB2","urlToCrawl":"https://www.facebook.com/","depthToCrawl":2}`
-	master.q.Publish(JOBS_QUEUE, []byte(json))
+	master.q.Publish(mq.JOBS_QUEUE, []byte(json))
 	json = `{"jobId":"JOB3","urlToCrawl":"https://www.instagram.com/","depthToCrawl":2}`
-	master.q.Publish(JOBS_QUEUE, []byte(json))
+	master.q.Publish(mq.JOBS_QUEUE, []byte(json))
 	master.q.Close()
 	os.Exit(1)
 }
