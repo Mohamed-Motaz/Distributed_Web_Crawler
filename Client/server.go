@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/google/uuid"
@@ -24,7 +26,7 @@ var MqHost string = 				getEnv(MQ_HOST, LOCAL_HOST)
 var MyPort string =  				os.Getenv(MY_PORT)
 var MqPort string =  				os.Getenv(MQ_PORT)
 
-const MAX_IDLE_TIME time.Duration = 10 * time.Minute
+const MAX_IDLE_TIME time.Duration = 60 * time.Second
 
 
 
@@ -43,55 +45,69 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024 * 16, //response is usually pretty large
 }
 
-
-type LoggingMiddleware struct{
-	handler http.Handler
-}
-
 type Server struct{
+	handler http.Handler					//logging requests middleware
 	q *mq.MQ   								//message queue to publish and consume messages
 	connsMap map[string]*Client  			//keep track of all clients and their connections, to be able to send on them
 	mu sync.RWMutex
 }
 
-var server Server
-
-func main(){	
+func main(){
+	upgrader.CheckOrigin = func(r *http.Request) bool { return true }  //allow cross-origin requests	
 	server, err := New()
 	if (err != nil){
 		logger.FailOnError(logger.SERVER, "Error while creating server %v", err)
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/job", server.serveWS)
-
-	logger.LogInfo(logger.SERVER, "Listening on %v:%v", MyHost, MqPort)
 	
-	err = http.ListenAndServe(MyHost + ":" + MyPort, &LoggingMiddleware{mux})
-	if err != nil{
-		logger.FailOnError(logger.SERVER, "Failed in listening on port with error %v", err)
+	signalCh := make(chan os.Signal, 1)
+	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
+	
+	sig := <- signalCh //block until user exits
+	logger.LogInfo(logger.SERVER, "Received a quit sig %+v\nNow cleaning up and closing resources", sig)
+	
+	//close all connections
+	server.mu.RLock()
+	for _, v := range server.connsMap{
+		v.conn.Close()
 	}
+	server.mu.RUnlock()
+	
 }
 
 func New() (*Server, error) {
+
+
 	server := &Server{
 		q: mq.New("amqp://guest:guest@" + MqHost + ":" + MqPort + "/"),  //os.Getenv("AMQP_URL"))
 		connsMap: make(map[string]*Client),
 		mu: sync.RWMutex{},
 	}
 
+	mux := http.NewServeMux()
+	mux.HandleFunc("/job", server.serveWS)
+	server.handler = mux
+
+	go server.serve()
 	go server.qConsumer()
 	go server.cleaner()
+	go server.debug()
 
 	return server, nil
 }
 
-//logging middleware
-func (l *LoggingMiddleware) ServeHTTP(w http.ResponseWriter, r *http.Request){
-	l.handler.ServeHTTP(w, r)
+func (server *Server) ServeHTTP(w http.ResponseWriter, r *http.Request){
+	server.serveWS(w, r)
 	logger.LogRequest(logger.SERVER, "Request received from %v", r.RemoteAddr)
 }
 
+func (server *Server) serve(){
+	logger.LogInfo(logger.SERVER, "Listening on %v:%v", MyHost, MyPort)
+	err := http.ListenAndServe(MyHost + ":" + MyPort, server)
+	if err != nil{
+		logger.FailOnError(logger.SERVER, "Failed in listening on port with error %v", err)
+	}
+}
 
 func (server *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -110,7 +126,7 @@ func (server *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 	server.connsMap[client.Id] = client
 	server.mu.Unlock()
 
-	go client.reader()
+	go client.reader(server)
 }
 
 
@@ -125,11 +141,10 @@ func (server *Server) cleaner(){
 	for {
 		time.Sleep(5 * time.Second)
 
-		now := time.Now().Unix()
 		idleClients := make([]string, 0)
 		server.mu.RLock()
 		for k, v := range server.connsMap{
-			if  now - v.connTime > int64(MAX_IDLE_TIME){
+			if  time.Since(time.Unix(v.connTime, 0)) > MAX_IDLE_TIME{
 				logger.LogDelay(logger.SERVER, "Found an idle connection with client %v, about to delete it", v.conn.RemoteAddr())
 				idleClients = append(idleClients, k)
 			}
@@ -190,13 +205,24 @@ func (server *Server) qConsumer() {
 			//TODO add  job to cache
 			
 		default:
-			logger.LogInfo(logger.SERVER, "No jobs found, about to sleep") 
 			time.Sleep(time.Second * 5)
 		}	
 	}
 }
 
-
+func (server *Server) debug(){
+	for{
+		time.Sleep(5 * time.Second)
+		server.mu.RLock()
+		logger.LogDebug(logger.SERVER, "ConnsMap\n")
+		ctr := 1
+		for _,v := range server.connsMap{
+			logger.LogDebug(logger.SERVER, "%v -- %v", ctr, v.conn.RemoteAddr())
+			ctr++
+		}
+		server.mu.RUnlock()
+	}
+}
 
 //CLIENT  
 
@@ -227,7 +253,7 @@ func NewClient(conn *websocket.Conn) (*Client, error){
 }
 
 //read client job requests, and dump them to rabbit mq
-func (c *Client) reader(){
+func (c *Client) reader(server *Server){
 	defer c.conn.Close()
 
 	for{

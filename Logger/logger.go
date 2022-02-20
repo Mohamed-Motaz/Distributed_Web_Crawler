@@ -159,6 +159,8 @@ func determineRole(role int) string{
 		return "MESSAGE_Q-> "
 	case DATABASE:
 		return "DATABASE-> "
+	case SERVER:
+		return "SERVER-> "
 	default:
 		return "UNKNOWN-> "
 	}

@@ -3,6 +3,7 @@ package MessageQueue
 import (
 	logger "Distributed_Web_Crawler/Logger"
 	"fmt"
+	"sync"
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -11,8 +12,8 @@ import (
 type MQ struct{
 	conn *amqp.Connection 
 	ch *amqp.Channel
-	jobsQ *amqp.Queue
-	jobsFinishedQ *amqp.Queue
+	qMap map[string]*amqp.Queue
+	mu sync.Mutex
 }
 
 
@@ -27,8 +28,8 @@ func New(amqpAddr string) *MQ{
 	mq := &MQ{
 		conn: nil,
 		ch: nil,
-		jobsQ: nil,
-		jobsFinishedQ: nil,
+		qMap: make(map[string]*amqp.Queue),
+		mu: sync.Mutex{},
 	}
 	//try to reconnect and sleep 2 seconds on failure
 	var err error = fmt.Errorf("error")
@@ -49,8 +50,10 @@ func(mq *MQ) Close() {
 
 func (mq *MQ) Publish(qName string, body []byte) error{
 
-	//if jobsFinishedQ is nill, declare it
-	if mq.jobsFinishedQ == nil{
+	mq.mu.Lock()
+	//if q is nill, declare it
+	if _, ok := mq.qMap[qName]; !ok{
+		mq.mu.Unlock()
 		q, err := mq.ch.QueueDeclare(
 			qName, 
 			true,  //durable
@@ -62,13 +65,15 @@ func (mq *MQ) Publish(qName string, body []byte) error{
 		if err != nil{
 			return err
 		}
-		mq.jobsFinishedQ = &q
+		mq.mu.Lock()
+		mq.qMap[qName] = &q
 	}
-	
+	mq.mu.Unlock()
+
 
 	err := mq.ch.Publish(
 		"", //exchange,   empty is default
-		mq.jobsFinishedQ.Name, //routing key
+		qName, //routing key
 		false, //mandatory 
 		false, //immediate 
 		amqp.Publishing{
@@ -87,8 +92,10 @@ func (mq *MQ) Publish(qName string, body []byte) error{
 
 func (mq *MQ) Consume(qName string) (<-chan amqp.Delivery, error) {
 
-	//if jobsQ is nill, declare it
-	if mq.jobsQ == nil{
+	//if q is nill, declare it
+	mq.mu.Lock()
+	if _, ok := mq.qMap[qName]; !ok{
+		mq.mu.Unlock()
 		q, err := mq.ch.QueueDeclare(
 			qName, 
 			true,  //durable
@@ -100,8 +107,12 @@ func (mq *MQ) Consume(qName string) (<-chan amqp.Delivery, error) {
 		if err != nil{
 			return nil, err
 		}
-		mq.jobsQ = &q
+		mq.mu.Lock()
+		mq.qMap[qName] = &q
 	}
+	mq.mu.Unlock()
+
+
 	err := mq.ch.Qos(
 		1,     // prefetch count
 		0,     // prefetch size
@@ -111,7 +122,7 @@ func (mq *MQ) Consume(qName string) (<-chan amqp.Delivery, error) {
 		return nil, err
 	}
 	msgs, err := mq.ch.Consume(
-		mq.jobsQ.Name,
+		qName,
 		"", //consumer --> unique identifier that rabbit can just generate
 		false, //auto ack
 		false, //exclusive --> errors if other consumers consume
@@ -142,7 +153,7 @@ func(mq *MQ) connect(amqpAddr string) error{
 		logger.FailOnError(logger.MESSAGE_Q, "Exiting because of err while opening a channel %v", err)
 	}
 	mq.ch = ch
-
+	
 	logger.LogInfo(logger.MESSAGE_Q, "Connection to message queue has been successfully established")
 	return nil
 }
