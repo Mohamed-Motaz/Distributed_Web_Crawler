@@ -19,7 +19,8 @@ const (
 
 type Info struct{
 	Id int									`gorm:"primaryKey"` 	
-	JobId	string    						//id of job				  
+	JobId	string    						//id of job		
+	ClientId string							//id of client		  
 	MasterId string							//id of master
 	UrlToCrawl string						//urlToCrawl
 	DepthToCrawl int  						//depth required
@@ -121,6 +122,7 @@ func (db *DBWrapper) deleteAllRecords(table string){
 func ManualTesting(dBWrapper *DBWrapper) {
 	info := &Info{
 		JobId: "JobId",
+		ClientId: "ClientId",
 		MasterId: "MasterId",
 		UrlToCrawl: "UrlToCrawl",
 		DepthToCrawl: 1,

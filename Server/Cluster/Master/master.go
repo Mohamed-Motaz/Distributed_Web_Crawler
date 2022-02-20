@@ -80,6 +80,7 @@ type Master struct{
 	lockServerAddress string
 
 	jobNum int       						//job number to keep track of current job
+	clientId string						//id of client for which job I am currently doing
 	jobId string
 	jobRequiredDepth int   					//required depth to traverse
 						   					//min is 1, in which case I just crawl a single page and return the results
@@ -115,6 +116,7 @@ func New(myHost, myPort, lockServerHost, lockServerPort, mqHost, mqPort string) 
 		lockServerAddress: lockServerHost + ":" + lockServerPort,
 		jobNum: 0,
 		jobId: "",
+		clientId: "",
 		jobRequiredDepth: 0,
 		currentJob: false,
 		currentURL: "",
@@ -145,7 +147,7 @@ func New(myHost, myPort, lockServerHost, lockServerPort, mqHost, mqPort string) 
 
 
 //in the future, will take the work from rabbitmq
-func (master *Master) doCrawl(url string, depth int, jobId string) {
+func (master *Master) doCrawl(url string, depth int, jobId string, clientId string) {
 	//TODO clear up all the data from the previous crawl
 
 	logger.LogInfo(logger.MASTER, 
@@ -169,6 +171,7 @@ func (master *Master) doCrawl(url string, depth int, jobId string) {
 
 	master.jobNum++
 	master.jobId = jobId
+	master.clientId = clientId
 	master.jobRequiredDepth = depth
 
 	master.URLsTasks[0][url] = TaskAvailable  //set task as available to be given to servers
@@ -182,6 +185,7 @@ func (master *Master) doCrawl(url string, depth int, jobId string) {
 func (master *Master) resetMasterJobStatus(depth int){
 	master.jobRequiredDepth = 0
 	master.jobId = ""
+	master.clientId = ""
 
 	master.currentJob = false
 	master.currentURL = ""
@@ -349,6 +353,7 @@ func (master *Master) qPublisher() {
 			URLsList := utils.ConvertMapArrayToList(master.URLsTasks)
 			
 			fin := &mq.DoneJob{
+				ClientId: master.clientId,
 				JobId: master.jobId,
 				UrlToCrawl: master.currentURL,
 				DepthToCrawl: master.jobRequiredDepth,
@@ -422,6 +427,7 @@ func (master *Master) qConsumer() {
 			args := &RPC.GetJobArgs{
 				MasterId: id,
 				JobId: data.JobId,
+				ClientId: data.ClientId,
 				URL: data.UrlToCrawl,
 				Depth: data.DepthToCrawl,
 				NoCurrentJob: false,
@@ -439,7 +445,7 @@ func (master *Master) qConsumer() {
 				//use data
 				logger.LogInfo(logger.MASTER, "LockServer accepted job request %+v", args) 
 				newJob.Ack(false)
-				master.startJob(data.UrlToCrawl, data.DepthToCrawl, data.JobId)
+				master.startJob(data.UrlToCrawl, data.DepthToCrawl, data.JobId, data.ClientId)
 				continue
 			}
 
@@ -447,7 +453,7 @@ func (master *Master) qConsumer() {
 				//use reply 
 				logger.LogInfo(logger.MASTER, "LockServer provided outstanding job %+v", reply) 
 				newJob.Nack(false, true)
-				master.startJob(reply.URL, reply.Depth, reply.JobId)
+				master.startJob(reply.URL, reply.Depth, reply.JobId, reply.ClientId)
 				continue
 			}
 				
@@ -469,7 +475,7 @@ func (master *Master) qConsumer() {
 			if ok && reply.AlternateJob{
 					//there is indeed an outstanding job
 					logger.LogInfo(logger.MASTER, "LockServer provided outstanding job %+v", reply) 
-					master.startJob(reply.URL, reply.Depth, reply.JobId)
+					master.startJob(reply.URL, reply.Depth, reply.JobId, reply.ClientId)
 					continue
 			}
 
@@ -481,12 +487,12 @@ func (master *Master) qConsumer() {
 
 }
 
-func (master *Master) startJob(url string, depth int, jobId string){
+func (master *Master) startJob(url string, depth int, jobId string, clientId string){
 	//just to make sure not to accept more than 1 job at a time
 	master.mu.Lock()
 	master.currentJob = true
 	master.mu.Unlock()
-	go master.doCrawl(url, depth, jobId)
+	go master.doCrawl(url, depth, jobId, clientId)
 }
 
 //
@@ -511,6 +517,7 @@ func (master *Master) attemptSendFinishedJobToLockServer() bool {
 		args := &RPC.FinishedJobArgs{
 			MasterId: master.id,
 			JobId: master.jobId,
+			ClientId: master.clientId,
 			URL: master.currentURL,
 		}
 		ok := master.callLockServer("LockServer.HandleFinishedJobs", args, &RPC.FinishedJobReply{}) //send data to lockServer
@@ -561,11 +568,11 @@ func (master *Master) callLockServer(rpcName string, args interface{}, reply int
 }
 
 func(master *Master) addJobsForTesting(){
-	json := `{"jobId":"JOB1","urlToCrawl":"https://www.google.com/","depthToCrawl":2}`
+	json := `{"clientId":"Client1","jobId":"JOB1","urlToCrawl":"https://www.google.com/","depthToCrawl":2}`
 	master.q.Publish(mq.JOBS_QUEUE, []byte(json))
-	json = `{"jobId":"JOB2","urlToCrawl":"https://www.facebook.com/","depthToCrawl":2}`
+	json = `{"clientId":"Client2","jobId":"JOB2","urlToCrawl":"https://www.facebook.com/","depthToCrawl":2}`
 	master.q.Publish(mq.JOBS_QUEUE, []byte(json))
-	json = `{"jobId":"JOB3","urlToCrawl":"https://www.instagram.com/","depthToCrawl":2}`
+	json = `{"clientId":"Client3","jobId":"JOB3","urlToCrawl":"https://www.instagram.com/","depthToCrawl":2}`
 	master.q.Publish(mq.JOBS_QUEUE, []byte(json))
 	master.q.Close()
 	os.Exit(1)

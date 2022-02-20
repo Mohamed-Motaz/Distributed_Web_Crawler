@@ -26,6 +26,7 @@ type FinishedTaskReply struct{}
 //for master-lockserver communication -----------------------------
 type GetJobArgs struct{
 	MasterId string
+	ClientId string
 	JobId string
 	URL string   //url to crawl
 	Depth int
@@ -35,6 +36,7 @@ type GetJobArgs struct{
 type GetJobReply struct{
 	Accepted bool      //whether the lock server accepted or rejected the master's job request	MasterId string
 	AlternateJob bool  //whether there is an alternate job with higher priority
+	ClientId string
 	JobId string       //details of alternate job
 	URL string   
 	Depth int
@@ -42,6 +44,7 @@ type GetJobReply struct{
 
 type FinishedJobArgs struct{
 	MasterId string
+	ClientId string
 	JobId string
 	URL string
 }

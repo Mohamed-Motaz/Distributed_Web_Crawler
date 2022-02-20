@@ -54,6 +54,7 @@ func serveWS(w http.ResponseWriter, r *http.Request) {
 	mu.Unlock()
 
 	go client.reader()
+	go qConsumer()
 }
 
 //read client job requests, and dump them to rabbit mq
@@ -97,11 +98,60 @@ func (c *Client) reader(){
 }
 
 //write given data to a given connection
-func writer(){
-
+func writer(conn *websocket.Conn, data interface{}){
+	conn.WriteJSON(data)
 }
 
 //remove all connections idle for more than 1 hour
 func cleaner(){
 
+}
+
+//
+// start a thread that waits on a doneJobs from the message queue
+//
+func qConsumer() {
+	ch, err := q.Consume(mq.DONE_JOBS_QUEUE)
+
+	if err != nil{
+		logger.FailOnError(logger.SERVER, "Server can't consume doneJobs because with this error %v", err)
+	}
+
+	for {		
+		select{
+		case doneJob := <- ch:  //job has been finished and pushed to queue
+
+			body := doneJob.Body
+			data := &mq.DoneJob{}
+			
+			err := json.Unmarshal(body, data)
+			if err != nil {
+				logger.LogError(logger.MASTER, "Unable to unMarshal job with error %v\nWill discard it", err) 
+				doneJob.Ack(false)
+				continue
+			}
+
+			//a job has been finished, now need to push it over
+			//appropriate connection
+
+			mu.RLock()
+			client, ok := connsMap[data.ClientId]
+			mu.RUnlock()
+
+
+			if ok{
+				//send results to client over conn
+				go writer(client.conn, data)
+			} 
+			//else, connection with client has already been terminated
+
+			doneJob.Ack(false)
+
+			//TODO add  job to cache
+			
+		default:
+			logger.LogInfo(logger.SERVER, "No jobs found, about to sleep") 
+			time.Sleep(time.Second * 5)
+		}	
+	}
 }

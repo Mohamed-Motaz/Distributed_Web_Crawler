@@ -142,6 +142,7 @@ func (lockServer *LockServer) HandleGetJobs(args *RPC.GetJobArgs, reply *RPC.Get
 		logger.LogInfo(logger.LOCK_SERVER, "Job request accepted %+v", args)
 		lockServer.dbWrapper.AddRecord(&database.Info{
 			JobId: args.JobId,
+			ClientId: args.ClientId,
 			MasterId: args.MasterId,
 			UrlToCrawl: args.URL,
 			DepthToCrawl: args.Depth,
@@ -190,6 +191,7 @@ func (lockServer *LockServer) handleLateJobs(args *RPC.GetJobArgs, reply *RPC.Ge
 	info := &infos[0]
 	reply.AlternateJob = true
 	reply.JobId = info.JobId
+	reply.ClientId = info.ClientId
 	reply.URL = info.UrlToCrawl
 	reply.Depth = info.DepthToCrawl
 	
