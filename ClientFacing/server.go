@@ -1,6 +1,7 @@
 package main
 
 import (
+	cl "Distributed_Web_Crawler/ClientFacing/Client"
 	logger "Distributed_Web_Crawler/Logger"
 	mq "Distributed_Web_Crawler/MessageQueue"
 	"encoding/json"
@@ -11,7 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 const MY_PORT string = 				"MY_PORT"
@@ -48,7 +48,7 @@ var upgrader = websocket.Upgrader{
 type Server struct{
 	handler http.Handler					//logging requests middleware
 	q *mq.MQ   								//message queue to publish and consume messages
-	connsMap map[string]*Client  			//keep track of all clients and their connections, to be able to send on them
+	connsMap map[string]*cl.Client  			//keep track of all clients and their connections, to be able to send on them
 	mu sync.RWMutex
 }
 
@@ -69,7 +69,7 @@ func main(){
 	//close all connections
 	server.mu.RLock()
 	for _, v := range server.connsMap{
-		v.conn.Close()
+		v.Conn.Close()
 	}
 	server.mu.RUnlock()
 	
@@ -80,7 +80,7 @@ func New() (*Server, error) {
 
 	server := &Server{
 		q: mq.New("amqp://guest:guest@" + MqHost + ":" + MqPort + "/"),  //os.Getenv("AMQP_URL"))
-		connsMap: make(map[string]*Client),
+		connsMap: make(map[string]*cl.Client),
 		mu: sync.RWMutex{},
 	}
 
@@ -116,7 +116,7 @@ func (server *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	
-	client, err := NewClient(conn)
+	client, err := cl.NewClient(conn)
 	if err != nil{
 		logger.FailOnError(logger.SERVER, "Unable to create client with error %v", err)
 		return
@@ -126,7 +126,7 @@ func (server *Server) serveWS(w http.ResponseWriter, r *http.Request) {
 	server.connsMap[client.Id] = client
 	server.mu.Unlock()
 
-	go client.reader(server)
+	go server.reader(client)
 }
 
 
@@ -144,8 +144,8 @@ func (server *Server) cleaner(){
 		idleClients := make([]string, 0)
 		server.mu.RLock()
 		for k, v := range server.connsMap{
-			if  time.Since(time.Unix(v.connTime, 0)) > MAX_IDLE_TIME{
-				logger.LogDelay(logger.SERVER, "Found an idle connection with client %v, about to delete it", v.conn.RemoteAddr())
+			if  time.Since(time.Unix(v.ConnTime, 0)) > MAX_IDLE_TIME{
+				logger.LogDelay(logger.SERVER, "Found an idle connection with client %v, about to delete it", v.Conn.RemoteAddr())
 				idleClients = append(idleClients, k)
 			}
 		}
@@ -196,7 +196,7 @@ func (server *Server) qConsumer() {
 
 			if ok{
 				//send results to client over conn
-				go server.writer(client.conn, data)
+				go server.writer(client.Conn, data)
 			} 
 			//else, connection with client has already been terminated
 
@@ -210,6 +210,48 @@ func (server *Server) qConsumer() {
 	}
 }
 
+//read client job requests, and dump them to rabbit mq
+func (server *Server) reader(c *cl.Client){
+	defer c.Conn.Close()
+
+	for{
+		
+		c.Conn.SetReadDeadline(time.Now().Add(MAX_IDLE_TIME))  //can be idle for at most 10 mins
+		_, message, err := c.Conn.ReadMessage()
+		if err != nil{
+			logger.LogError(logger.SERVER, "Error %v with client %v", err, c.Conn.RemoteAddr())
+			return
+		}
+
+		//update client time
+		server.mu.Lock()
+		c.ConnTime = time.Now().Unix()  //lock this operation since cleaner is running
+										//and may check on c.connTime
+		server.mu.Unlock()
+
+		//read message
+		newJob := &mq.Job{}
+		err = json.Unmarshal(message, newJob)
+		if err != nil{
+			logger.LogError(logger.SERVER, "Error %v with client %v", err, c.Conn.RemoteAddr())
+			return
+		}
+
+		//TODO
+		//make sure job not present in cache
+		
+
+		//message is viable, can now send it over to mq
+		err = server.q.Publish(mq.JOBS_QUEUE, message)
+		if err != nil{
+			logger.LogError(logger.SERVER, "New job not published to queue with err %v", err)
+		}else{
+			logger.LogInfo(logger.SERVER, "New job successfully published to queue")
+		}
+		
+	}
+}
+
 func (server *Server) debug(){
 	for{
 		time.Sleep(5 * time.Second)
@@ -217,83 +259,10 @@ func (server *Server) debug(){
 		logger.LogDebug(logger.SERVER, "ConnsMap\n")
 		ctr := 1
 		for _,v := range server.connsMap{
-			logger.LogDebug(logger.SERVER, "%v -- %v", ctr, v.conn.RemoteAddr())
+			logger.LogDebug(logger.SERVER, "%v -- %v", ctr, v.Conn.RemoteAddr())
 			ctr++
 		}
 		server.mu.RUnlock()
 	}
 }
 
-//CLIENT  
-
-//each client's write goroutine is assigned a struct
-type Client struct{
-	Id string						//unique id
-	jobResults chan string  		//channel to receive job results from server
-	conn *websocket.Conn			//websocket connection associated with client
-	connTime int64					//epoch seconds at which conn created, all idle connections 
-									//are terminated after MAX_IDLE_TIME
-	killChan chan struct{}
-
-}
-
-func NewClient(conn *websocket.Conn) (*Client, error){
-	guid, err := uuid.NewRandom()
-	if err != nil{
-		logger.LogError(logger.SERVER, "Error generationg uuid for new ws connection: %v", err)
-		return nil, err
-	}
-	return &Client{
-		Id: guid.String(),
-		jobResults: make(chan string),
-		conn: conn,
-		connTime: time.Now().Unix(),
-		killChan: make(chan struct{}),
-	}, nil
-}
-
-//read client job requests, and dump them to rabbit mq
-func (c *Client) reader(server *Server){
-	defer c.conn.Close()
-
-	for{
-		select{
-		case <- c.killChan:
-			//die
-			return
-		default:
-			c.conn.SetReadDeadline(time.Now().Add(MAX_IDLE_TIME))  //can be idle for at most 10 mins
-			_, message, err := c.conn.ReadMessage()
-			if err != nil{
-				logger.LogError(logger.SERVER, "Error %v with client %v", err, c.conn.RemoteAddr())
-				return
-			}
-
-			//update client time
-			server.mu.Lock()
-			c.connTime = time.Now().Unix()  //lock this operation since cleaner is running
-											//and may check on c.connTime
-			server.mu.Unlock()
-
-			//read message
-			newJob := &mq.Job{}
-			err = json.Unmarshal(message, newJob)
-			if err != nil{
-				logger.LogError(logger.SERVER, "Error %v with client %v", err, c.conn.RemoteAddr())
-				return
-			}
-
-			//TODO
-			//make sure job not present in cache
-			
-
-			//message is viable, can now send it over to mq
-			err = server.q.Publish(mq.JOBS_QUEUE, message)
-			if err != nil{
-				logger.LogError(logger.SERVER, "New job not published to queue with err %v", err)
-			}else{
-				logger.LogInfo(logger.SERVER, "New job successfully published to queue")
-			}
-		}
-	}
-}
