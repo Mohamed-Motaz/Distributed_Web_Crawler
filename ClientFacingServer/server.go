@@ -23,10 +23,10 @@ const LOCAL_HOST string = 			"127.0.0.1"
 var MyHost string = 				getEnv(MY_HOST, LOCAL_HOST) 
 var MqHost string = 				getEnv(MQ_HOST, LOCAL_HOST)
 
-var MyPort string =  				os.Getenv(MY_PORT)
-var MqPort string =  				os.Getenv(MQ_PORT)
+var MyPort string =  				getEnv(MY_PORT, "5555")
+var MqPort string =  				getEnv(MQ_PORT, "5672")
 
-const MAX_IDLE_TIME time.Duration = 60 * time.Second
+const MAX_IDLE_TIME time.Duration = 5 * time.Minute
 
 
 

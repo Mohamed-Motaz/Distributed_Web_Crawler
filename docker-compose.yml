@@ -1,5 +1,24 @@
 version: "3.9" # optional since v1.27.0
 services:
+  haproxy:
+    # net: host
+    networks:
+      - web_crawler_network
+    container_name: haproxy_container
+    image: haproxy:alpine
+    depends_on:
+      - client_facing_server1
+      - client_facing_server2
+      - client_facing_server3
+
+    restart: always
+
+    ports:
+      - 8080:8080
+      - 8404:8404
+    volumes:
+      - ~/docker-conf/local/haproxy/:/usr/local/etc/haproxy
+      - ~/go/src/github.com/Mohamed247/Distributed_Web_Crawler/HaProxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
   postgres:
     container_name: postgres_container
     # network_mode: "host"
@@ -28,7 +47,7 @@ services:
       - ~/docker-conf/rabbitmq/data/:/var/lib/rabbitmq/
       - ~/docker-conf/rabbitmq/log/:/var/log/rabbitmq
 
-  client_facing_server:
+  client_facing_server1:
     # network_mode: "host"
     networks:
       - web_crawler_network
@@ -36,11 +55,45 @@ services:
       - rabbitmq
     environment:
       - MY_PORT=5555
-      - MY_HOST=client_facing_server
+      - MY_HOST=client_facing_server1
       - MQ_HOST=rabbitmq
       - MQ_PORT=5672
     ports:
       - 5555:5555
+    build:
+      #    network: host
+      context: ./
+      dockerfile: ./clientFacingServer/Dockerfile
+  client_facing_server2:
+    # network_mode: "host"
+    networks:
+      - web_crawler_network
+    depends_on:
+      - rabbitmq
+    environment:
+      - MY_PORT=5556
+      - MY_HOST=client_facing_server2
+      - MQ_HOST=rabbitmq
+      - MQ_PORT=5672
+    ports:
+      - 5556:5556
+    build:
+      #    network: host
+      context: ./
+      dockerfile: ./clientFacingServer/Dockerfile
+  client_facing_server3:
+    # network_mode: "host"
+    networks:
+      - web_crawler_network
+    depends_on:
+      - rabbitmq
+    environment:
+      - MY_PORT=5557
+      - MY_HOST=client_facing_server3
+      - MQ_HOST=rabbitmq
+      - MQ_PORT=5672
+    ports:
+      - 5557:5557
     build:
       #    network: host
       context: ./
