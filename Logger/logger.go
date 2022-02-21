@@ -7,8 +7,8 @@ import (
 	"time"
 )
 
-const debug = 1;
-const log = 0;
+const debugLogs = 0;
+const essentialLogs = 1;
 
 const (
 	MASTER = iota
@@ -32,78 +32,99 @@ const (
 	LOG_REQUEST
 )
 
-func FailOnError(role int, format string, a ...interface{}){
-	format = beautifyLogs(role, format, LOG_ERROR)
+const (
+	ESSENTIAL = 1
+	NON_ESSENTIAL = 2
+)
+
+func FailOnError(role int, essential int, format string, a ...interface{}){
+	format = beautifyLogs(role, essential, format, LOG_ERROR)
 	fmt.Printf(format, a...)
 	os.Exit(1)
 }
 
-func LogInfo(role int, format string, a ...interface{}){
-	format = beautifyLogs(role, format, LOG_INFO)
+func LogInfo(role int, essential int, format string, a ...interface{}){
+	format = beautifyLogs(role, essential, format, LOG_INFO)
 
-	if debug == 1{
+	if debugLogs == 1{
+		fmt.Printf(format, a...)
+	}else if (essentialLogs == 1 && essential == ESSENTIAL){
 		fmt.Printf(format, a...)
 	}
 }
 
-func LogError(role int, format string, a ...interface{}){
-	format = beautifyLogs(role, format, LOG_ERROR)
+func LogError(role int, essential int, format string, a ...interface{}){
+	format = beautifyLogs(role, essential, format, LOG_ERROR)
 
-	if debug == 1{
+	if debugLogs == 1{
+		fmt.Printf(format, a...)
+	}else if (essentialLogs == 1 && essential == ESSENTIAL){
 		fmt.Printf(format, a...)
 	}
 }
 
-func LogDelay(role int, format string, a ...interface{}){
-	format = beautifyLogs(role, format, LOG_DELAY)
+func LogDelay(role int, essential int, format string, a ...interface{}){
+	format = beautifyLogs(role, essential, format, LOG_DELAY)
 
-	if debug == 1{
+	if debugLogs == 1{
+		fmt.Printf(format, a...)
+	}else if (essentialLogs == 1 && essential == ESSENTIAL){
 		fmt.Printf(format, a...)
 	}
 }
 
-func LogDebug(role int, format string, a ...interface{}){
-	format = beautifyLogs(role, format, LOG_DEBUG)
+func LogDebug(role int, essential int, format string, a ...interface{}){
+	format = beautifyLogs(role, essential, format, LOG_DEBUG)
 
-	if debug == 1{
+	if debugLogs == 1{
+		fmt.Printf(format, a...)
+	}else if (essentialLogs == 1 && essential == ESSENTIAL){
 		fmt.Printf(format, a...)
 	}
 }
 
-func LogTaskDone(role int, format string, a ...interface{}){
-	format = beautifyLogs(role, format, LOG_TASK_DONE)
+func LogTaskDone(role int, essential int, format string, a ...interface{}){
+	format = beautifyLogs(role, essential, format, LOG_TASK_DONE)
 
-	if debug == 1{
+	if debugLogs == 1{
+		fmt.Printf(format, a...)
+	}else if (essentialLogs == 1 && essential == ESSENTIAL){
 		fmt.Printf(format, a...)
 	}
 }
 
-func LogJobDone(role int, format string, a ...interface{}){
-	format = beautifyLogs(role, format, LOG_JOB_DONE)
+func LogJobDone(role int, essential int, format string, a ...interface{}){
+	format = beautifyLogs(role, essential, format, LOG_JOB_DONE)
 
-	if debug == 1{
+	if debugLogs == 1{
+		fmt.Printf(format, a...)
+	}else if (essentialLogs == 1 && essential == ESSENTIAL){
 		fmt.Printf(format, a...)
 	}
 }
 
-func LogMilestone(role int, format string, a ...interface{}){
-	format = beautifyLogs(role, format, LOG_MILESTONE)
+func LogMilestone(role int, essential int, format string, a ...interface{}){
+	format = beautifyLogs(role, essential, format, LOG_MILESTONE)
 
-	if debug == 1{
+	if debugLogs == 1{
+		fmt.Printf(format, a...)
+	}else if (essentialLogs == 1 && essential == ESSENTIAL){
 		fmt.Printf(format, a...)
 	}
 }
 
-func LogRequest(role int, format string, a ...interface{}){
-	format = beautifyLogs(role, format, LOG_REQUEST)
+func LogRequest(role int, essential int, format string, a ...interface{}){
+	format = beautifyLogs(role, essential, format, LOG_REQUEST)
 
-	if debug == 1{
+	if debugLogs == 1{
+		fmt.Printf(format, a...)
+	}else if (essentialLogs == 1 && essential == ESSENTIAL){
 		fmt.Printf(format, a...)
 	}
 }
 
 
-func beautifyLogs(role int, format string, logType int) string {
+func beautifyLogs(role int, essential int, format string, logType int) string {
 	additionalInfo := determineRole(role)
 
 	switch logType {

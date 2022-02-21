@@ -43,7 +43,7 @@ type Client struct{
 func NewClient(conn *websocket.Conn) (*Client, error){
 	guid, err := uuid.NewRandom()
 	if err != nil{
-		logger.LogError(logger.SERVER, "Error generationg uuid for new ws connection: %v", err)
+		logger.LogError(logger.SERVER, logger.NON_ESSENTIAL, "Error generationg uuid for new ws connection: %v", err)
 		return nil, err
 	}
 	return &Client{

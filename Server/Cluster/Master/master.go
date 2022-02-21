@@ -60,7 +60,7 @@ func main(){
 	master, err := New(myHost, myPort, lockServerHost, lockServerPort, mqHost, mqPort)
 	
 	if err != nil{
-		logger.FailOnError(logger.CLUSTER, "Exiting becuase of error creating a master: %v", err)
+		logger.FailOnError(logger.CLUSTER, logger.ESSENTIAL, "Exiting becuase of error creating a master: %v", err)
 	}
 
 	//master.addJobsForTesting()
@@ -69,7 +69,7 @@ func main(){
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
 	
 	sig := <- signalCh //block until user exits
-	logger.LogInfo(logger.MASTER, "Received a quit sig %+v\nNow cleaning up and closing resources", sig)
+	logger.LogInfo(logger.MASTER, logger.ESSENTIAL, "Received a quit sig %+v\nNow cleaning up and closing resources", sig)
 	master.q.Close()
 }
 
@@ -106,7 +106,6 @@ type Master struct{
 func New(myHost, myPort, lockServerHost, lockServerPort, mqHost, mqPort string) (*Master, error){
 	guid, err := uuid.NewRandom()
 	if err != nil{
-		logger.LogError(logger.MASTER, "Error generationg uuid: %v", err)
 		return nil, err
 	}
 
@@ -150,7 +149,7 @@ func New(myHost, myPort, lockServerHost, lockServerPort, mqHost, mqPort string) 
 func (master *Master) doCrawl(url string, depth int, jobId string, clientId string) {
 	//TODO clear up all the data from the previous crawl
 
-	logger.LogInfo(logger.MASTER, 
+	logger.LogInfo(logger.MASTER, logger.ESSENTIAL, 
 		"Recieved a request to crawl this website %v with a depth of %v",
 		url, depth)
 
@@ -214,11 +213,11 @@ func (master *Master) server() error{
 
 
 	if err != nil {
-		logger.FailOnError(logger.MASTER, "Error while listening on socket: %v", err)
-
+		logger.FailOnError(logger.MASTER, logger.ESSENTIAL, "Error while listening on socket: %v", err)
+	}else{
+			logger.LogInfo(logger.MASTER, logger.ESSENTIAL, "Listening on socket: %v", master.address)
 	}
 
-	logger.LogInfo(logger.MASTER, "Listening on socket: %v", master.address)
 
 	go http.Serve(listener, nil)
 	return nil
@@ -241,7 +240,7 @@ func (master *Master) checkLateTasks() {
 		for k,v := range master.URLsTasks[master.currentDepth]{
 			if v == TaskAssigned{
 				if time.Since(master.workersTimers[master.currentDepth][k]) > time.Second * 20 {
-					logger.LogDelay(logger.MASTER, "Found a server that was asleep with this url %v", k)
+					logger.LogDelay(logger.MASTER, logger.NON_ESSENTIAL, "Found a server that was asleep with this url %v", k)
 					//a server hasnt replied for 20 seconds
 					master.URLsTasks[master.currentDepth][k] = TaskAvailable   //set his task to be available
 				}
@@ -276,7 +275,7 @@ func (master *Master) urlInTasks(url string, parentUrl string) bool{
 //
 func (master *Master) checkJobAvailable(reply *RPC.GetTaskReply){
 	if master.currentDepth >= master.jobRequiredDepth{
-		logger.LogInfo(logger.MASTER, "The worker was given no tasks as none are available %v", reply)
+		logger.LogInfo(logger.MASTER, logger.NON_ESSENTIAL, "The worker was given no tasks as none are available %v", reply)
 		return
 	} 
 
@@ -291,14 +290,14 @@ func (master *Master) checkJobAvailable(reply *RPC.GetTaskReply){
 			master.workersTimers[master.currentDepth][url] = time.Now()
 			reply.URL = url
 			reply.JobNum = master.jobNum
-			logger.LogInfo(logger.MASTER, "The worker was given this task %v", reply)
+			logger.LogInfo(logger.MASTER, logger.NON_ESSENTIAL, "The worker was given this task %v", reply)
 			return
 		}
 	}
 
 	//no job found, can try to move on to the next depth
 	if currentDepthFinished{
-		logger.LogMilestone(logger.MASTER, "Milestone reached, depth %v has been finished", master.currentDepth)
+		logger.LogMilestone(logger.MASTER, logger.NON_ESSENTIAL, "Milestone reached, depth %v has been finished", master.currentDepth)
 		master.currentDepth++
 		master.checkJobAvailable(reply)
 		return
@@ -314,7 +313,7 @@ func (master *Master) checkJobDone() {
 		master.mu.Lock()
 		if master.currentJob && master.currentDepth >= master.jobRequiredDepth{
 			//job is finished
-			logger.LogInfo(logger.MASTER, "Done with job with id %v url %v, depth %v, and jobNum %v", 
+			logger.LogInfo(logger.MASTER, logger.ESSENTIAL, "Done with job with id %v url %v, depth %v, and jobNum %v", 
 			master.jobId, master.currentURL, master.jobRequiredDepth, master.jobNum)
 
 			//now send it over channel to qPublisher rabbit mq
@@ -362,13 +361,13 @@ func (master *Master) qPublisher() {
 			
 			res, err := json.Marshal(fin)
 			if err != nil{
-				logger.LogError(logger.MASTER, "Unable to convert result to string! Discarding...")
+				logger.LogError(logger.MASTER, logger.ESSENTIAL, "Unable to convert result to string! Discarding...")
 			}else{
 				err = master.q.Publish(mq.DONE_JOBS_QUEUE, res)
 				if err != nil{
-					logger.LogError(logger.MASTER, "DoneJob not published to queue with err %v", err)
+					logger.LogError(logger.MASTER, logger.ESSENTIAL, "DoneJob not published to queue with err %v", err)
 				}else{
-					logger.LogInfo(logger.MASTER, "DoneJob successfully published to queue")
+					logger.LogInfo(logger.MASTER, logger.ESSENTIAL, "DoneJob successfully published to queue")
 				}
 			}
 
@@ -392,7 +391,7 @@ func (master *Master) qConsumer() {
 	time.Sleep(2 * time.Second) //sleep for 2 seconds to await lockServer waking up
 
 	if err != nil{
-		logger.FailOnError(logger.MASTER, "Master can't consume jobs because with this error %v", err)
+		logger.FailOnError(logger.MASTER, logger.ESSENTIAL, "Master can't consume jobs because with this error %v", err)
 	}
 
 	for {
@@ -414,7 +413,7 @@ func (master *Master) qConsumer() {
 			
 			err := json.Unmarshal(body, data)
 			if err != nil {
-				logger.LogError(logger.MASTER, "Unable to consume job with error %v\nWill discard it", err) 
+				logger.LogError(logger.MASTER, logger.ESSENTIAL, "Unable to consume job with error %v\nWill discard it", err) 
 				newJob.Ack(false) //probably should just ack so it doesnt sit around in the queue forever
 				continue
 			}
@@ -435,7 +434,7 @@ func (master *Master) qConsumer() {
 			reply := &RPC.GetJobReply{}
 			ok := master.callLockServer("LockServer.HandleGetJobs", args, reply)
 			if !ok{
-				logger.LogError(logger.MASTER, "Unable to contact lockserver to ask about job with error %v\nWill discard it", err) 
+				logger.LogError(logger.MASTER, logger.ESSENTIAL, "Unable to contact lockserver to ask about job with error %v\nWill discard it", err) 
 				newJob.Nack(false, true)
 				continue
 			}
@@ -443,7 +442,7 @@ func (master *Master) qConsumer() {
 
 			if reply.Accepted{
 				//use data
-				logger.LogInfo(logger.MASTER, "LockServer accepted job request %+v", args) 
+				logger.LogInfo(logger.MASTER, logger.ESSENTIAL, "LockServer accepted job request %v", args.JobId) 
 				newJob.Ack(false)
 				master.startJob(data.UrlToCrawl, data.DepthToCrawl, data.JobId, data.ClientId)
 				continue
@@ -451,7 +450,7 @@ func (master *Master) qConsumer() {
 
 			if reply.AlternateJob{
 				//use reply 
-				logger.LogInfo(logger.MASTER, "LockServer provided outstanding job %+v", reply) 
+				logger.LogInfo(logger.MASTER, logger.ESSENTIAL, "LockServer provided outstanding job %v instead of requested job %v", reply.JobId, args.JobId) 
 				newJob.Nack(false, true)
 				master.startJob(reply.URL, reply.Depth, reply.JobId, reply.ClientId)
 				continue
@@ -474,12 +473,12 @@ func (master *Master) qConsumer() {
 			ok := master.callLockServer("LockServer.HandleGetJobs", args, reply)
 			if ok && reply.AlternateJob{
 					//there is indeed an outstanding job
-					logger.LogInfo(logger.MASTER, "LockServer provided outstanding job %+v", reply) 
+					logger.LogInfo(logger.MASTER, logger.ESSENTIAL, "LockServer provided outstanding job %v", reply.JobId) 
 					master.startJob(reply.URL, reply.Depth, reply.JobId, reply.ClientId)
 					continue
 			}
 
-			logger.LogInfo(logger.MASTER, "No jobs found, about to sleep") 
+			logger.LogInfo(logger.MASTER, logger.NON_ESSENTIAL, "No jobs found, about to sleep") 
 			time.Sleep(time.Second * 5)
 		}
 		
@@ -512,7 +511,6 @@ func (master *Master) attemptSendFinishedJobToLockServer() bool {
 			master.mu.Unlock()
 			break
 		}
-		master.mu.Unlock()
 
 		args := &RPC.FinishedJobArgs{
 			MasterId: master.id,
@@ -520,12 +518,14 @@ func (master *Master) attemptSendFinishedJobToLockServer() bool {
 			ClientId: master.clientId,
 			URL: master.currentURL,
 		}
+		master.mu.Unlock()
+
 		ok := master.callLockServer("LockServer.HandleFinishedJobs", args, &RPC.FinishedJobReply{}) //send data to lockServer
 
 		if !ok{
-			logger.LogError(logger.MASTER, "Attempt number %v to send finished job to lockServer unsuccessfull", ctr)
+			logger.LogError(logger.MASTER, logger.ESSENTIAL, "Attempt number %v to send finished job to lockServer unsuccessfull", ctr)
 		}else{
-			logger.LogInfo(logger.MASTER, "Attempt number %v to send finished job to lockServer successfull", ctr)
+			logger.LogInfo(logger.MASTER, logger.ESSENTIAL, "Attempt number %v to send finished job to lockServer successfull", ctr)
 			return true
 		}
 		ctr++
@@ -544,7 +544,7 @@ func (master *Master) callLockServer(rpcName string, args interface{}, reply int
 	for ctr <= 3 && !successfullConnection{
 		client, err = rpc.DialHTTP("tcp", master.lockServerAddress)  //blocking
 		if err != nil{
-			logger.LogError(logger.MASTER, "Attempt number %v of dialing lockServer failed with error: %v\n", ctr,err)
+			logger.LogError(logger.MASTER, logger.ESSENTIAL, "Attempt number %v of dialing lockServer failed with error: %v\n", ctr,err)
 			time.Sleep(2 * time.Second)
 		}else{
 			successfullConnection = true
@@ -552,7 +552,7 @@ func (master *Master) callLockServer(rpcName string, args interface{}, reply int
 		ctr++
 	}
 	if !successfullConnection{
-		logger.FailOnError(logger.MASTER, "Error dialing http: %v\nFatal Error: Can't establish connection to lockServer. Exiting now", err)
+		logger.FailOnError(logger.MASTER, logger.ESSENTIAL, "Error dialing http: %v\nFatal Error: Can't establish connection to lockServer. Exiting now", err)
 	}
 
 	defer client.Close()
@@ -560,7 +560,7 @@ func (master *Master) callLockServer(rpcName string, args interface{}, reply int
 	err = client.Call(rpcName, args, reply)
 
 	if err != nil{
-		logger.LogError(logger.MASTER, "Unable to call lockServer with RPC with error: %v", err)
+		logger.LogError(logger.MASTER, logger.ESSENTIAL, "Unable to call lockServer with RPC with error: %v", err)
 		return false
 	}
 
@@ -583,7 +583,7 @@ func (master *Master) debug(){
 		
 		master.mu.Lock()
 		for i,e  := range master.URLsTasks{
-			logger.LogDebug(logger.MASTER, "This is the map with len %v \n", len(e))
+			logger.LogDebug(logger.MASTER, logger.NON_ESSENTIAL, "This is the map with len %v \n", len(e))
 			taskAvailable := 0
 			taskAssigned := 0
 			taskDone := 0
@@ -592,7 +592,7 @@ func (master *Master) debug(){
 				if v == TaskAssigned{taskAssigned++}
 				if v == TaskDone{taskDone++} 
 			}
-			logger.LogDebug(logger.MASTER, "URLsTasks num %v: \n" + 
+			logger.LogDebug(logger.MASTER, logger.NON_ESSENTIAL, "URLsTasks num %v: \n" + 
 			"TasksAvailable:  %v\nTasksAssigned: %v\nTasksDone: %v",i, taskAvailable, taskAssigned, taskDone)
 		}
 		master.mu.Unlock()
@@ -624,7 +624,7 @@ func generatePortNum() (int, *net.Listener, error){
 //
 
 func (master *Master) HandleGetTasks(args *RPC.GetTaskArgs, reply *RPC.GetTaskReply) error {
-	logger.LogInfo(logger.MASTER, "A worker requested to be given a task %v", args)
+	logger.LogInfo(logger.MASTER, logger.NON_ESSENTIAL, "A worker requested to be given a task %v", args)
 	reply.JobNum = -1
 	reply.URL = ""
 
@@ -632,13 +632,13 @@ func (master *Master) HandleGetTasks(args *RPC.GetTaskArgs, reply *RPC.GetTaskRe
 	defer master.mu.Unlock()
 
 	if !master.currentJob{
-		logger.LogInfo(logger.MASTER, 
+		logger.LogInfo(logger.MASTER, logger.NON_ESSENTIAL, 
 			"A worker requested to be given a task but we have no jobs at the moment")
 		return nil
 	} 
 
 	if master.currentDepth >= master.jobRequiredDepth{
-		logger.LogDelay(logger.MASTER, 
+		logger.LogDelay(logger.MASTER, logger.NON_ESSENTIAL, 
 			"A worker requested to be given a task but we have already finished the job")
 		return nil
 	} 
@@ -653,13 +653,13 @@ func (master *Master) HandleFinishedTasks(args *RPC.FinishedTaskArgs, reply *RPC
 	defer master.mu.Unlock()
 
 	if master.currentDepth >= master.jobRequiredDepth{
-		logger.LogDelay(logger.MASTER, 
+		logger.LogDelay(logger.MASTER, logger.NON_ESSENTIAL, 
 			"A worker has finished a task %v but we have already finished the job", args.URL)
 		return nil
 	} 
 
 	if !master.currentJob {
-		logger.LogDelay(logger.MASTER, 
+		logger.LogDelay(logger.MASTER, logger.NON_ESSENTIAL, 
 			"A worker finished a late task %v for job num %v but there is no current job",
 			args.URL, args.JobNum)
 		return nil
@@ -667,12 +667,12 @@ func (master *Master) HandleFinishedTasks(args *RPC.FinishedTaskArgs, reply *RPC
 
 	if (master.URLsTasks[master.currentDepth][args.URL] == TaskDone){
 		//already finished, do nothing
-		logger.LogDelay(logger.MASTER, "Worker has finished this task with jobNum %v and URL %v " +
+		logger.LogDelay(logger.MASTER, logger.NON_ESSENTIAL, "Worker has finished this task with jobNum %v and URL %v " +
 							"which was already finished", args.JobNum, args.URL)
 		return nil
 	}	
 
-	logger.LogTaskDone(logger.MASTER, "A worker just finished this task: \n" +
+	logger.LogTaskDone(logger.MASTER, logger.NON_ESSENTIAL, "A worker just finished this task: \n" +
 		"JobNum: %v \nURL: %v \nURLsLen :%v", 
 		args.JobNum, args.URL, len(args.URLs))
 

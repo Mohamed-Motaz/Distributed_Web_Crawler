@@ -14,7 +14,7 @@ const mxTokensToParse int = 1000
 func GetURLsSlice(url string) ([]string, error) {
 	resp, err := http.Get(url)
 	if err != nil{
-		logger.LogError(logger.CRAWLING, "Error while getting the url %v", err)
+		logger.LogError(logger.CRAWLING, logger.ESSENTIAL, "Error while getting the url %v", err)
 		return nil, err
 	}
 

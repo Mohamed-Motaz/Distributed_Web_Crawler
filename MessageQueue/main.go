@@ -86,7 +86,7 @@ func (mq *MQ) Publish(qName string, body []byte) error{
 		return err
 	}
 
-	logger.LogInfo(logger.MESSAGE_Q, "Successfully published to queue %v a message with this data:\n%v", qName, string(body))
+	logger.LogInfo(logger.MESSAGE_Q, logger.NON_ESSENTIAL, "Successfully published to queue %v a message with this data:\n%v", qName, string(body))
 	return nil
 }
 
@@ -134,7 +134,7 @@ func (mq *MQ) Consume(qName string) (<-chan amqp.Delivery, error) {
 		return nil, err
 	}
 
-	logger.LogInfo(logger.MESSAGE_Q, "Successfully subscribed to queue %v", qName)
+	logger.LogInfo(logger.MESSAGE_Q, logger.NON_ESSENTIAL, "Successfully subscribed to queue %v", qName)
 	return msgs, nil
 }
 
@@ -143,17 +143,17 @@ func(mq *MQ) connect(amqpAddr string) error{
 
 	conn, err := amqp.Dial(amqpAddr)
 	if err != nil{
-		logger.FailOnError(logger.MESSAGE_Q, "Exiting because of err while establishing connection with message queue %v", err)
+		logger.FailOnError(logger.MESSAGE_Q, logger.ESSENTIAL, "Exiting because of err while establishing connection with message queue %v", err)
 	}
 	mq.conn = conn
 
 
 	ch, err := conn.Channel()
 	if err != nil{
-		logger.FailOnError(logger.MESSAGE_Q, "Exiting because of err while opening a channel %v", err)
+		logger.FailOnError(logger.MESSAGE_Q, logger.ESSENTIAL, "Exiting because of err while opening a channel %v", err)
 	}
 	mq.ch = ch
 	
-	logger.LogInfo(logger.MESSAGE_Q, "Connection to message queue has been successfully established")
+	logger.LogInfo(logger.MESSAGE_Q, logger.ESSENTIAL, "Connection to message queue has been successfully established")
 	return nil
 }

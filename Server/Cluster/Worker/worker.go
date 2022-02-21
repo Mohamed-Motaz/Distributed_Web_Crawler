@@ -35,17 +35,17 @@ func getEnv(key, fallback string) string {
 
 func main(){
 	
-	_, err := MakeWorker(masterHost, masterPort)
+	_, err := New(masterHost, masterPort)
 
 	if err != nil{
-		logger.FailOnError(logger.WORKER, "Exiting becuase of error during worker creation: %v", err)
+		logger.FailOnError(logger.WORKER, logger.ESSENTIAL, "Exiting becuase of error during worker creation: %v", err)
 	}
 
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
 	
 	sig := <- signalCh //block until user exits
-	logger.LogInfo(logger.WORKER, "Received a quit sig %+v", sig)
+	logger.LogInfo(logger.WORKER, logger.ESSENTIAL, "Received a quit sig %+v", sig)
 }
 
 type Worker struct {
@@ -65,11 +65,10 @@ type Worker struct {
 
 
 
-func MakeWorker(masterHost, masterPort string) (*Worker, error) {
+func New(masterHost, masterPort string) (*Worker, error) {
 	guid, err := uuid.NewRandom()
 
 	if err != nil{
-		logger.LogError(logger.MASTER, "Error generationg uuid: %v", err)
 		return nil, err
 	}
 	worker := &Worker{
@@ -116,7 +115,7 @@ func (worker *Worker) sleepIfExponentialBackOff(){
 		}
 		worker.mu.Unlock()
 
-		logger.LogInfo(logger.WORKER, "About to sleep for %v seconds using exponential backoff", timeToSleep)
+		logger.LogInfo(logger.WORKER, logger.NON_ESSENTIAL, "About to sleep for %v seconds using exponential backoff", timeToSleep)
 		time.Sleep(time.Duration(timeToSleep  * int(time.Second)))
 
 	}
@@ -124,12 +123,12 @@ func (worker *Worker) sleepIfExponentialBackOff(){
 func (worker *Worker) askForJob(){
 	worker.sleepIfExponentialBackOff()
 
-	logger.LogInfo(logger.WORKER, "Worker asking for a job from master")
+	logger.LogInfo(logger.WORKER, logger.NON_ESSENTIAL, "Worker asking for a job from master")
 	reply := &RPC.GetTaskReply{}
 	ok := worker.callMaster("Master.HandleGetTasks", &RPC.GetTaskArgs{}, reply)
 	
 	if !ok {
-		logger.LogError(logger.WORKER, "Error while sending handleGetTasks to master")
+		logger.LogError(logger.WORKER, logger.NON_ESSENTIAL, "Error while sending handleGetTasks to master")
 		return
 	}
 
@@ -137,13 +136,13 @@ func (worker *Worker) askForJob(){
 	if reply.JobNum == -1 {
 		worker.currentJob = false
 		worker.currentJobNum = -1
-		logger.LogInfo(logger.WORKER, "Worker didnt receive a job from master as there are currently none available")
+		logger.LogInfo(logger.WORKER, logger.NON_ESSENTIAL, "Worker didnt receive a job from master as there are currently none available")
 		worker.mu.Unlock()
 		return
 	}
 
 	//received a valid job
-	logger.LogInfo(logger.WORKER, "Worker received a valid job %v", reply)
+	logger.LogInfo(logger.WORKER, logger.NON_ESSENTIAL, "Worker received a valid job %v", reply)
 
 	worker.currentJob = true
 	worker.currentJobNum = reply.JobNum
@@ -164,11 +163,11 @@ func (worker *Worker) doTask(URL string){
 	if err != nil {
 		//cant do current job, so discard it
 
-		logger.LogError(logger.WORKER, "Can't crawl this URL %v, discarding it....", URL)
+		logger.LogError(logger.WORKER, logger.ESSENTIAL, "Can't crawl this URL %v, discarding it....", URL)
 		worker.resetWorkerJobStatus()
 	}else{
 		//say that u finished the job
-		logger.LogInfo(logger.WORKER, "Worker finished task with this url " +
+		logger.LogInfo(logger.WORKER, logger.NON_ESSENTIAL, "Worker finished task with this url " +
 		"%v and jobNum %v", URL, worker.currentJobNum)
 
 		worker.currentFinishedURLs = links   //set those to be finished to send them again if u cant
@@ -186,10 +185,10 @@ func (worker *Worker) doTask(URL string){
 
 		if !ok{
 			//askForJobLooper thread is responsible for detecting this scenario
-			logger.LogError(logger.WORKER, "Error while sending handleFinishedTasks to master")
+			logger.LogError(logger.WORKER, logger.NON_ESSENTIAL, "Error while sending handleFinishedTasks to master")
 		}else{
 			//successfully sent jobs to master and finished tasks, now mark currentJob as false
-			logger.LogInfo(logger.WORKER, "Worker successfully sent finished task with this url " +
+			logger.LogInfo(logger.WORKER, logger.NON_ESSENTIAL, "Worker successfully sent finished task with this url " +
 									"%v and jobNum %v to master", args.URL, args.JobNum)
 		}
 
@@ -221,9 +220,9 @@ func (worker *Worker) attemptSendFinishedJobToMaster(args *RPC.FinishedTaskArgs)
 		ok = worker.callMaster("Master.HandleFinishedTasks", args, &RPC.FinishedTaskReply{})
 
 		if !ok{
-			logger.LogError(logger.WORKER, "Attempt number %v to send finished tasks to master unsuccessfull", ctr)
+			logger.LogError(logger.WORKER, logger.ESSENTIAL, "Attempt number %v to send finished tasks to master unsuccessfull", ctr)
 		}else{
-			logger.LogInfo(logger.WORKER, "Attempt number %v to send finished tasks to master successfull", ctr)
+			logger.LogInfo(logger.WORKER, logger.ESSENTIAL, "Attempt number %v to send finished tasks to master successfull", ctr)
 			return true
 		}
 		ctr++
@@ -273,7 +272,7 @@ func (worker *Worker) askForJobLooper(){
 				//found our corner case
 				if time.Since(worker.jobFinishedTime) > 10 * time.Second { //have been holding on to the job for over 10 seconds
 					//discard it
-					logger.LogError(logger.WORKER, "Unable to send job with URL %v and jobNum %v for over 10 seconds",
+					logger.LogError(logger.WORKER, logger.ESSENTIAL, "Unable to send job with URL %v and jobNum %v for over 10 seconds",
 									worker.currentURL, worker.currentJobNum)
 					worker.resetWorkerJobStatus()
 				}
@@ -297,7 +296,7 @@ func (worker *Worker) callMaster(rpcName string, args interface{}, reply interfa
 	for ctr <= 3 && !successfullConnection{
 		client, err = rpc.DialHTTP("tcp", worker.masterAddress)  //blocking
 		if err != nil{
-			logger.LogError(logger.WORKER, "Attempt number %v of dialing master failed with error: %v\n", ctr,err)
+			logger.LogError(logger.WORKER, logger.ESSENTIAL, "Attempt number %v of dialing master failed with error: %v\n", ctr,err)
 			time.Sleep(2 * time.Second)
 		}else{
 			successfullConnection = true
@@ -305,7 +304,7 @@ func (worker *Worker) callMaster(rpcName string, args interface{}, reply interfa
 		ctr++
 	}
 	if !successfullConnection{
-		logger.FailOnError(logger.WORKER, "Error dialing http: %v\nFatal Error: Can't establish connection to master. Exiting now", err)
+		logger.FailOnError(logger.WORKER, logger.ESSENTIAL, "Error dialing http: %v\nFatal Error: Can't establish connection to master. Exiting now", err)
 	}
 
 	defer client.Close()
@@ -313,7 +312,7 @@ func (worker *Worker) callMaster(rpcName string, args interface{}, reply interfa
 	err = client.Call(rpcName, args, reply)
 
 	if err != nil{
-		logger.LogError(logger.WORKER, "Unable to call master with RPC with error: %v", err)
+		logger.LogError(logger.WORKER, logger.ESSENTIAL, "Unable to call master with RPC with error: %v", err)
 		return false
 	}
 

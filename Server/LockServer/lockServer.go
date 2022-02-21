@@ -41,7 +41,7 @@ func main(){
 	p.dbWrapper.DeleteAllRecords()
 	
 	if err != nil{
-		logger.FailOnError(logger.LOCK_SERVER, "Exiting becuase of error creating a lockServer: %v", err)
+		logger.FailOnError(logger.LOCK_SERVER, logger.ESSENTIAL, "Exiting becuase of error creating a lockServer: %v", err)
 	}
 
 
@@ -49,7 +49,7 @@ func main(){
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
 	
 	sig := <- signalCh //block until user exits
-	logger.LogInfo(logger.LOCK_SERVER, "Received a quit sig %+v\nNow cleaning up and closing resources", sig)
+	logger.LogInfo(logger.LOCK_SERVER, logger.ESSENTIAL, "Received a quit sig %+v\nNow cleaning up and closing resources", sig)
 
 }
 
@@ -66,7 +66,6 @@ type LockServer struct{
 func New(myHost, myPort, dbHost, dbPort string) (*LockServer, error){
 	guid, err := uuid.NewRandom()
 	if err != nil{
-		logger.LogError(logger.LOCK_SERVER, "Error generationg uuid: %v", err)
 		return nil, err
 	}
 
@@ -97,11 +96,11 @@ func (lockServer *LockServer) server() error{
 
 
 	if err != nil {
-		logger.FailOnError(logger.LOCK_SERVER, "Error while listening on socket: %v", err)
+		logger.FailOnError(logger.LOCK_SERVER, logger.ESSENTIAL, "Error while listening on socket: %v", err)
 
 	}
 
-	logger.LogInfo(logger.LOCK_SERVER, "Listening on socket: %v", lockServer.address)
+	logger.LogInfo(logger.LOCK_SERVER, logger.ESSENTIAL, "Listening on socket: %v", lockServer.address)
 
 	go http.Serve(listener, nil)
 	return nil
@@ -113,7 +112,7 @@ func (lockServer *LockServer) server() error{
 //
 
 func (lockServer *LockServer) HandleGetJobs(args *RPC.GetJobArgs, reply *RPC.GetJobReply) error {
-	logger.LogInfo(logger.LOCK_SERVER, "A master requested to be given a job %+v", args)
+	logger.LogInfo(logger.LOCK_SERVER, logger.ESSENTIAL, "A master requested to be given a job %+v", args)
 	reply.Accepted = false
 	reply.AlternateJob = false
 
@@ -139,7 +138,7 @@ func (lockServer *LockServer) HandleGetJobs(args *RPC.GetJobArgs, reply *RPC.Get
 
 	if info.Id == 0{
 		//no job present, can safely send assign this job to this master
-		logger.LogInfo(logger.LOCK_SERVER, "Job request accepted %+v", args)
+		logger.LogInfo(logger.LOCK_SERVER, logger.ESSENTIAL, "Job request accepted %v", args.JobId)
 		lockServer.dbWrapper.AddRecord(&database.Info{
 			JobId: args.JobId,
 			ClientId: args.ClientId,
@@ -155,24 +154,24 @@ func (lockServer *LockServer) HandleGetJobs(args *RPC.GetJobArgs, reply *RPC.Get
 	//job is present and another master has been assigned it
 	//job can't be late since we have already handled the case where it is indeed late
 	//we have to reject it, and we can't provide an alternative
-	logger.LogError(logger.LOCK_SERVER, "Job request rejected %+v", args)
+	logger.LogError(logger.LOCK_SERVER, logger.ESSENTIAL, "Job request rejected %v", args.JobId)
 
 	return nil
 }
 
 func (lockServer *LockServer) HandleFinishedJobs(args *RPC.FinishedJobArgs, reply *RPC.FinishedJobReply) error {
-	logger.LogJobDone(logger.LOCK_SERVER, "A master just finished this job: \n%+v", args)
+	logger.LogJobDone(logger.LOCK_SERVER, logger.ESSENTIAL, "A master just finished this job: \n%+v", args)
 
 	info := &database.Info{}
 	lockServer.dbWrapper.GetRecordByJobId(info, args.JobId)
 	if info.Id == 0{
 		//job not in the db, may have already been finished
-		logger.LogError(logger.LOCK_SERVER, "Job already removed from database")
+		logger.LogError(logger.LOCK_SERVER, logger.ESSENTIAL, "Job already removed from database")
 		return nil
 	}
 
 	lockServer.dbWrapper.DeleteRecord(info)
-	logger.LogJobDone(logger.LOCK_SERVER, "Job finished successfully")
+	logger.LogJobDone(logger.LOCK_SERVER, logger.ESSENTIAL, "Job finished successfully")
 	return nil
 
 }
@@ -184,7 +183,7 @@ func (lockServer *LockServer) handleLateJobs(args *RPC.GetJobArgs, reply *RPC.Ge
 	if len(infos) == 0{
 		return false //no late jobs found
 	}
-	logger.LogDelay(logger.LOCK_SERVER, "Found a late job that will be reassigned %+v", infos[0])
+	logger.LogDelay(logger.LOCK_SERVER, logger.ESSENTIAL, "Found a late job that will be reassigned %+v", infos[0])
 
 
 	//found a job that had been assigned but is late

@@ -36,7 +36,7 @@ type DBWrapper struct{
 func New(myHost, myPort string) *DBWrapper{
 	db := connect(myHost, myPort)
 	setUp(db)
-	logger.LogInfo(logger.DATABASE, "Db setup complete")
+	logger.LogInfo(logger.DATABASE, logger.ESSENTIAL, "Db setup complete")
 	return &DBWrapper{
 		db: db,
 	}
@@ -53,7 +53,7 @@ func connect(myHost, myPort string) *gorm.DB{
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil{
-		logger.FailOnError(logger.DATABASE, "Unable to connect to db with this error %v", err)
+		logger.FailOnError(logger.DATABASE, logger.ESSENTIAL, "Unable to connect to db with this error %v", err)
 	}
 	return db
 }
@@ -61,7 +61,7 @@ func connect(myHost, myPort string) *gorm.DB{
 func setUp(db *gorm.DB) {
 	err := db.AutoMigrate(&Info{})
 	if err != nil{
-		logger.FailOnError(logger.DATABASE, "Unable to migrate the tables with this error %v", err)
+		logger.FailOnError(logger.DATABASE, logger.ESSENTIAL, "Unable to migrate the tables with this error %v", err)
 	}
 }
 
@@ -132,32 +132,32 @@ func ManualTesting(dBWrapper *DBWrapper) {
 
 	info = &Info{}
 	dBWrapper.getRecord(info, JOB_ID + " = ?", "JobId")
-	logger.LogInfo(logger.DATABASE, "The info retreived %+v", info)
+	logger.LogInfo(logger.DATABASE, logger.NON_ESSENTIAL, "The info retreived %+v", info)
 
 	infos := []Info{}
 	dBWrapper.getRecords(&infos, URL_TO_CRAWL + " = ?", "UrlToCrawl")
-	logger.LogInfo(logger.DATABASE, "The infos retreived %+v", infos)
+	logger.LogInfo(logger.DATABASE, logger.NON_ESSENTIAL, "The infos retreived %+v", infos)
 
 	infos = []Info{}
 	dBWrapper.getAllRecords(&infos)
-	logger.LogInfo(logger.DATABASE, "All infos retreived %+v", infos)
+	logger.LogInfo(logger.DATABASE, logger.NON_ESSENTIAL, "All infos retreived %+v", infos)
 
 	info.JobId = "NNEWWWW"
 	dBWrapper.updateRecord(info)
 
 	infos = []Info{}
 	dBWrapper.getAllRecords(&infos)
-	logger.LogInfo(logger.DATABASE, "All infos retreived after update %+v", infos)
+	logger.LogInfo(logger.DATABASE, logger.NON_ESSENTIAL, "All infos retreived after update %+v", infos)
 
 	infos = []Info{}
 	dBWrapper.GetRecordsThatPassedXSeconds(&infos, 20)
-	logger.LogInfo(logger.DATABASE, "All infos that passedXseconds %+v", infos)
+	logger.LogInfo(logger.DATABASE, logger.NON_ESSENTIAL, "All infos that passedXseconds %+v", infos)
 
 	//dBWrapper.deleteRecord(info)
 
 	infos = []Info{}
 	dBWrapper.getAllRecords(&infos)
-	logger.LogInfo(logger.DATABASE, "All infos retreived after deleting record %+v", infos)
+	logger.LogInfo(logger.DATABASE, logger.NON_ESSENTIAL, "All infos retreived after deleting record %+v", infos)
 
 	//dBWrapper.deleteAllRecords(TABLE_NAME)
 
