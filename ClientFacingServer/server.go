@@ -4,6 +4,7 @@ import (
 	cl "Distributed_Web_Crawler/ClientFacingServer/Client"
 	logger "Distributed_Web_Crawler/Logger"
 	mq "Distributed_Web_Crawler/MessageQueue"
+	utils "Distributed_Web_Crawler/Utils"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -18,25 +19,20 @@ const MY_PORT string = 				"MY_PORT"
 const MY_HOST string =				"MY_HOST"
 const MQ_PORT string = 				"MQ_PORT"
 const MQ_HOST string = 				"MQ_HOST"
+const CACHE_PORT string = 			"CACHE_PORT"
+const CACHE_HOST string = 			"CACHE_HOST"
 const LOCAL_HOST string = 			"127.0.0.1"
 
-var MyHost string = 				getEnv(MY_HOST, LOCAL_HOST) 
-var MqHost string = 				getEnv(MQ_HOST, LOCAL_HOST)
+var MyHost string = 				utils.GetEnv(MY_HOST, LOCAL_HOST) 
+var MqHost string = 				utils.GetEnv(MQ_HOST, LOCAL_HOST)
+var CacheHost string = 				utils.GetEnv(CACHE_HOST, LOCAL_HOST)
 
-var MyPort string =  				getEnv(MY_PORT, "5555")
-var MqPort string =  				getEnv(MQ_PORT, "5672")
+var MyPort string =  				utils.GetEnv(MY_PORT, "5555")
+var MqPort string =  				utils.GetEnv(MQ_PORT, "5672")
+var CachePort string =  			utils.GetEnv(CACHE_PORT, "6379")
 
-const MAX_IDLE_TIME time.Duration = 5 * time.Minute
-
-
-
-func getEnv(key, fallback string) string {
-    if value, ok := os.LookupEnv(key); ok {
-        return value
-    }
-    return fallback
-}
-
+const MAX_IDLE_CONNECTION_TIME time.Duration			= 5 * time.Minute
+const MAX_IDLE_CACHE_TIME time.Duration 				= 60 * time.Minute
 
 
 var upgrader = websocket.Upgrader{
@@ -47,7 +43,7 @@ var upgrader = websocket.Upgrader{
 type Server struct{
 	handler http.Handler					//logging requests middleware
 	q *mq.MQ   								//message queue to publish and consume messages
-	connsMap map[string]*cl.Client  			//keep track of all clients and their connections, to be able to send on them
+	connsMap map[string]*cl.Client  		//keep track of all clients and their connections, to be able to send on them
 	mu sync.RWMutex
 }
 
@@ -57,7 +53,6 @@ func main(){
 	if (err != nil){
 		logger.FailOnError(logger.SERVER, logger.ESSENTIAL, "Error while creating server %v", err)
 	}
-
 	
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM, syscall.SIGINT)
@@ -71,20 +66,19 @@ func main(){
 		v.Conn.Close()
 	}
 	server.mu.RUnlock()
-	
 }
 
 func New() (*Server, error) {
 
 
 	server := &Server{
-		q: mq.New("amqp://guest:guest@" + MqHost + ":" + MqPort + "/"),  //os.Getenv("AMQP_URL"))
+		q: mq.New("amqp://guest:guest@" + MqHost + ":" + MqPort + "/"), 
 		connsMap: make(map[string]*cl.Client),
 		mu: sync.RWMutex{},
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/job", server.serveWS)
+	mux.HandleFunc("/", server.serveWS)
 	server.handler = mux
 
 	go server.serve()
@@ -143,7 +137,7 @@ func (server *Server) cleaner(){
 		idleClients := make([]string, 0)
 		server.mu.RLock()
 		for k, v := range server.connsMap{
-			if  time.Since(time.Unix(v.ConnTime, 0)) > MAX_IDLE_TIME{
+			if  time.Since(time.Unix(v.ConnTime, 0)) > MAX_IDLE_CONNECTION_TIME{
 				logger.LogDelay(logger.SERVER, logger.ESSENTIAL, "Found an idle connection with client %v, about to delete it", v.Conn.RemoteAddr())
 				idleClients = append(idleClients, k)
 			}
@@ -219,7 +213,7 @@ func (server *Server) reader(c *cl.Client){
 
 	for{
 		
-		c.Conn.SetReadDeadline(time.Now().Add(MAX_IDLE_TIME))  //can be idle for at most 10 mins
+		c.Conn.SetReadDeadline(time.Now().Add(MAX_IDLE_CONNECTION_TIME))  //can be idle for at most 10 mins
 		_, message, err := c.Conn.ReadMessage()
 		if err != nil{
 			logger.LogError(logger.SERVER, logger.NON_ESSENTIAL, "Error %v with client %v", err, c.Conn.RemoteAddr())

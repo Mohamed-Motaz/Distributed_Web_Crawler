@@ -4,6 +4,7 @@ import (
 	logger "Distributed_Web_Crawler/Logger"
 	crawling "Distributed_Web_Crawler/Server/Cluster/Functionality"
 	"Distributed_Web_Crawler/Server/Cluster/RPC"
+	utils "Distributed_Web_Crawler/Utils"
 	"math/rand"
 	"net/rpc"
 	"os"
@@ -22,16 +23,9 @@ const MASTER_HOST string = 				"MASTER_HOST"
 const LOCAL_HOST string = 				"127.0.0.1"
 
 
-var masterHost string = 			getEnv(MASTER_HOST, LOCAL_HOST)
+var masterHost string = 			utils.GetEnv(MASTER_HOST, LOCAL_HOST)
 
-var masterPort string =				os.Getenv(MASTER_PORT)
-
-func getEnv(key, fallback string) string {
-    if value, ok := os.LookupEnv(key); ok {
-        return value
-    }
-    return fallback
-}
+var masterPort string =				utils.GetEnv(MASTER_PORT, "7777")
 
 func main(){
 	

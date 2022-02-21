@@ -4,6 +4,7 @@ import (
 	logger "Distributed_Web_Crawler/Logger"
 	"Distributed_Web_Crawler/Server/Cluster/RPC"
 	database "Distributed_Web_Crawler/Server/LockServer/Database"
+	utils "Distributed_Web_Crawler/Utils"
 	"net"
 	"net/http"
 	"net/rpc"
@@ -22,18 +23,12 @@ const DB_PORT string = 			"DB_PORT"
 const DB_HOST string = 			"DB_HOST"
 const LOCAL_HOST string = 		"127.0.0.1"
 
-var myHost string = 			getEnv(MY_HOST, LOCAL_HOST) 
-var dbHost string = 			getEnv(DB_HOST, LOCAL_HOST)
+var myHost string = 			utils.GetEnv(MY_HOST, LOCAL_HOST) 
+var dbHost string = 			utils.GetEnv(DB_HOST, LOCAL_HOST)
 
-var myPort string =  			os.Getenv(MY_PORT)
-var dbPort string = 			os.Getenv(DB_PORT)
+var myPort string =  			utils.GetEnv(MY_PORT, "9999")
+var dbPort string = 			utils.GetEnv(DB_PORT, "5432")
 
-func getEnv(key, fallback string) string {
-    if value, ok := os.LookupEnv(key); ok {
-        return value
-    }
-    return fallback
-}
 
 func main(){
 

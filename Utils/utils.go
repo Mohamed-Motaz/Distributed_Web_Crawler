@@ -2,6 +2,7 @@ package Utils
 
 import (
 	"net/http"
+	"os"
 )
 
 func LinkIsValid(link string) bool {
@@ -41,4 +42,11 @@ func ResizeSlice(lst []string, requiredLen int){
 	}
 	lst = lst[:requiredLen]
 	return
+}
+
+func GetEnv(key, fallback string) string {
+    if value, ok := os.LookupEnv(key); ok {
+        return value
+    }
+    return fallback
 }

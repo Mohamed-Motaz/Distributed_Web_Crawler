@@ -4,7 +4,7 @@ import (
 	logger "Distributed_Web_Crawler/Logger"
 	mq "Distributed_Web_Crawler/MessageQueue"
 	"Distributed_Web_Crawler/Server/Cluster/RPC"
-	utils "Distributed_Web_Crawler/Server/Cluster/Utils"
+	utils "Distributed_Web_Crawler/Utils"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -29,20 +29,14 @@ const MQ_HOST string = 				"MQ_HOST"
 const LOCAL_HOST string = 			"127.0.0.1"
 
 
-var myHost string = 				getEnv(MY_HOST, LOCAL_HOST) 
-var lockServerHost string = 		getEnv(LOCK_SERVER_HOST, LOCAL_HOST)
-var mqHost string = 				getEnv(MQ_HOST, LOCAL_HOST)
+var myHost string = 				utils.GetEnv(MY_HOST, LOCAL_HOST) 
+var lockServerHost string = 		utils.GetEnv(LOCK_SERVER_HOST, LOCAL_HOST)
+var mqHost string = 				utils.GetEnv(MQ_HOST, LOCAL_HOST)
 
-var myPort string =  				os.Getenv(MY_PORT)
-var mqPort string =  				os.Getenv(MQ_PORT)
-var lockServerPort string = 		os.Getenv(LOCK_SERVER_PORT)
+var myPort string =  				utils.GetEnv(MY_PORT, "7777")
+var mqPort string =  				utils.GetEnv(MQ_PORT, "5672")
+var lockServerPort string = 		utils.GetEnv(LOCK_SERVER_PORT, "9999")
 
-func getEnv(key, fallback string) string {
-    if value, ok := os.LookupEnv(key); ok {
-        return value
-    }
-    return fallback
-}
 
 const 
 (

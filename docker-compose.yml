@@ -1,5 +1,7 @@
 version: "3.9" # optional since v1.27.0
 services:
+  cache:
+
   haproxy:
     # net: host
     networks:
@@ -53,6 +55,7 @@ services:
       - web_crawler_network
     depends_on:
       - rabbitmq
+      - cache
     environment:
       - MY_PORT=5555
       - MY_HOST=client_facing_server1
@@ -70,6 +73,7 @@ services:
       - web_crawler_network
     depends_on:
       - rabbitmq
+      - cache
     environment:
       - MY_PORT=5556
       - MY_HOST=client_facing_server2
@@ -87,6 +91,7 @@ services:
       - web_crawler_network
     depends_on:
       - rabbitmq
+      - cache
     environment:
       - MY_PORT=5557
       - MY_HOST=client_facing_server3
