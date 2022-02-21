@@ -1,7 +1,7 @@
 package main
 
 import (
-	cl "Distributed_Web_Crawler/ClientFacing/Client"
+	cl "Distributed_Web_Crawler/ClientFacingServer/Client"
 	logger "Distributed_Web_Crawler/Logger"
 	mq "Distributed_Web_Crawler/MessageQueue"
 	"encoding/json"
@@ -36,7 +36,6 @@ func getEnv(key, fallback string) string {
     }
     return fallback
 }
-
 
 
 

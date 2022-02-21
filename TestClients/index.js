@@ -2,7 +2,7 @@ const WebSocket = require("ws");
 
 async function connect(id) {
   try {
-    let ws = new WebSocket("ws://127.0.0.1:2222/jobs");
+    let ws = new WebSocket("ws://127.0.0.1:5555/jobs");
     ws.onmessage = (m) => console.log("Received message " + m);
     ws.onopen = function (e) {
       console.log("[open] Connection established");

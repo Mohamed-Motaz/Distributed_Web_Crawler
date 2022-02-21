@@ -171,7 +171,7 @@ func (lockServer *LockServer) HandleFinishedJobs(args *RPC.FinishedJobArgs, repl
 	}
 
 	lockServer.dbWrapper.DeleteRecord(info)
-	logger.LogJobDone(logger.LOCK_SERVER, logger.ESSENTIAL, "Job finished successfully")
+	logger.LogJobDone(logger.LOCK_SERVER, logger.NON_ESSENTIAL, "Job finished successfully")
 	return nil
 
 }

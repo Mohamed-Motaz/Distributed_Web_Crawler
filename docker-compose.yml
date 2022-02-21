@@ -28,6 +28,24 @@ services:
       - ~/docker-conf/rabbitmq/data/:/var/lib/rabbitmq/
       - ~/docker-conf/rabbitmq/log/:/var/log/rabbitmq
 
+  client_facing_server:
+    # network_mode: "host"
+    networks:
+      - web_crawler_network
+    depends_on:
+      - rabbitmq
+    environment:
+      - MY_PORT=5555
+      - MY_HOST=client_facing_server
+      - MQ_HOST=rabbitmq
+      - MQ_PORT=5672
+    ports:
+      - 5555:5555
+    build:
+      #    network: host
+      context: ./
+      dockerfile: ./clientFacingServer/Dockerfile
+
   # LOCK_SERVER --------------------------------------------------
   lock_server:
     # network_mode: "host"
@@ -61,6 +79,7 @@ services:
       - LOCK_SERVER_PORT=9999
       - LOCK_SERVER_HOST=lock_server
       - MQ_HOST=rabbitmq
+      - MQ_PORT=5672
     ports:
       - 7777:7777
     build:
