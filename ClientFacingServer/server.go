@@ -4,7 +4,9 @@ import (
 	cl "Distributed_Web_Crawler/ClientFacingServer/Client"
 	logger "Distributed_Web_Crawler/Logger"
 	mq "Distributed_Web_Crawler/MessageQueue"
+	rc "Distributed_Web_Crawler/RedisCache"
 	utils "Distributed_Web_Crawler/Utils"
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -42,6 +44,8 @@ var upgrader = websocket.Upgrader{
 
 type Server struct{
 	handler http.Handler					//logging requests middleware
+	cache *rc.Cache							//wrapper around redis
+	cachedJobsCh chan mq.DoneJob				//channel to send along doneJobs that are present in cache
 	q *mq.MQ   								//message queue to publish and consume messages
 	connsMap map[string]*cl.Client  		//keep track of all clients and their connections, to be able to send on them
 	mu sync.RWMutex
@@ -73,6 +77,8 @@ func New() (*Server, error) {
 
 	server := &Server{
 		q: mq.New("amqp://guest:guest@" + MqHost + ":" + MqPort + "/"), 
+		cache: rc.New(CacheHost, CachePort),
+		cachedJobsCh: make(chan mq.DoneJob),
 		connsMap: make(map[string]*cl.Client),
 		mu: sync.RWMutex{},
 	}
@@ -168,7 +174,6 @@ func (server *Server) qConsumer() {
 	for {		
 		select{
 		case doneJob := <- ch:  //job has been finished and pushed to queue
-
 			body := doneJob.Body
 			data := &mq.DoneJob{}
 			
@@ -184,14 +189,18 @@ func (server *Server) qConsumer() {
 			logger.LogInfo(logger.SERVER, logger.ESSENTIAL, "Job %+v consumed from message queue", data) 
 
 			server.mu.RLock()
-			client, ok := server.connsMap[data.ClientId]
+			tmp, ok := server.connsMap[data.ClientId]
+			var client cl.Client
+			if ok{
+				client = *tmp			 		//copy client in memory, rather than change the pointer directly, to avoid a possible data race
+			}
 			server.mu.RUnlock()
 
 
 			if ok{
 				//send results to client over conn
 				go server.writer(client.Conn, data)
-				logger.LogInfo(logger.SERVER, logger.ESSENTIAL, "Job %+v sent to client %+v", data, client.Conn.RemoteAddr()) 
+				logger.LogInfo(logger.SERVER, logger.ESSENTIAL, "Job sent to client %+v\n%+v", client.Conn.RemoteAddr(), data) 
 
 			}else{
 				logger.LogError(logger.SERVER, logger.ESSENTIAL, "Job %+v done, but connection with client has been terminated", data) 
@@ -199,10 +208,40 @@ func (server *Server) qConsumer() {
 
 			doneJob.Ack(false)
 
-			//TODO add  job to cache
-			
+			//add  job to cache
+
+			toCache := &rc.CachedObj{
+				UrlToCrawl: data.UrlToCrawl,
+				DepthToCrawl: data.DepthToCrawl,
+				Results: data.Results,
+			}
+
+			server.cache.AddIfNoLargerResultPresent(data.UrlToCrawl, toCache, MAX_IDLE_CACHE_TIME)
+
+		case cachedJob := <- server.cachedJobsCh:
+				
+			//a job has been found in cache, now need to push it over
+			//appropriate connection
+
+			server.mu.RLock()
+			tmp, ok := server.connsMap[cachedJob.ClientId]
+			var client cl.Client
+			if ok{
+				client = *tmp			 		//copy client in memory, rather than change the pointer directly, to avoid a possible data race
+			}
+			server.mu.RUnlock()
+
+			if ok{
+				//send results to client over conn
+				go server.writer(client.Conn, cachedJob)
+				logger.LogInfo(logger.SERVER, logger.ESSENTIAL, "Job sent to client %+v\n%+v", client.Conn.RemoteAddr(), cachedJob) 
+
+			}else{
+				logger.LogError(logger.SERVER, logger.ESSENTIAL, "Job %+v done, but connection with client has been terminated", cachedJob) 
+			} 
+
 		default:
-			time.Sleep(time.Second * 5)
+			time.Sleep(time.Second * 2)
 		}	
 	}
 }
@@ -216,7 +255,7 @@ func (server *Server) reader(c *cl.Client){
 		c.Conn.SetReadDeadline(time.Now().Add(MAX_IDLE_CONNECTION_TIME))  //can be idle for at most 10 mins
 		_, message, err := c.Conn.ReadMessage()
 		if err != nil{
-			logger.LogError(logger.SERVER, logger.NON_ESSENTIAL, "Error %v with client %v", err, c.Conn.RemoteAddr())
+			logger.LogError(logger.SERVER, logger.NON_ESSENTIAL, "Error with client %v\n%v", c.Conn.RemoteAddr(), err)
 			return
 		}
 
@@ -224,22 +263,44 @@ func (server *Server) reader(c *cl.Client){
 		server.mu.Lock()
 		c.ConnTime = time.Now().Unix()  //lock this operation since cleaner is running
 										//and may check on c.connTime
+		newJob := &mq.Job{}
+		newJob.ClientId = c.Id //need to set clientId of the newJob as this client's id
 		server.mu.Unlock()
 
-		//read message
-		newJob := &mq.Job{}
+		//read message into json
 		err = json.Unmarshal(message, newJob)
 		if err != nil{
-			logger.LogError(logger.SERVER, logger.NON_ESSENTIAL, "Error %v with client %v", err, c.Conn.RemoteAddr())
+			logger.LogError(logger.SERVER, logger.NON_ESSENTIAL, "Error with client %v\n%v", c.Conn.RemoteAddr(), err)
 			return
 		}
 
-		//TODO
 		//make sure job not present in cache
-		
+		res := server.cache.GetCachedJobIfPresent(newJob.UrlToCrawl, newJob.DepthToCrawl, MAX_IDLE_CACHE_TIME)
+		if res != nil{
+			//found in cache
+			logger.LogInfo(logger.SERVER, logger.ESSENTIAL, "New job found in cache %+v", res)
+			doneJob := &mq.DoneJob{
+				ClientId: c.Id,
+				JobId: newJob.JobId,
+				UrlToCrawl: newJob.UrlToCrawl,
+				DepthToCrawl: newJob.DepthToCrawl,
+				Results: res.Results[:newJob.DepthToCrawl],  //cut the results to the size requested by the user
+			}
+			//send it over channel to be sent immediatley
+			go func(job *mq.DoneJob){
+				server.cachedJobsCh <- *job
+			}(doneJob)
+			continue
+		}
 
-		//message is viable, can now send it over to mq
-		err = server.q.Publish(mq.JOBS_QUEUE, message)
+		toPublish := new(bytes.Buffer)
+		err = json.NewEncoder(toPublish).Encode(newJob)
+		if err != nil{
+			logger.LogError(logger.SERVER, logger.ESSENTIAL, "Error with client %v\n%v", c.Conn.RemoteAddr(), err)
+			return
+		}
+		//message is viable and isnt present in cache, can now send it over to mq
+		err = server.q.Publish(mq.JOBS_QUEUE, toPublish.Bytes())
 		if err != nil{
 			logger.LogError(logger.SERVER, logger.ESSENTIAL, "New job not published to jobs queue with err %v", err)
 		}else{
@@ -255,8 +316,8 @@ func (server *Server) debug(){
 		server.mu.RLock()
 		logger.LogDebug(logger.SERVER, logger.NON_ESSENTIAL, "ConnsMap\n")
 		ctr := 1
-		for _,v := range server.connsMap{
-			logger.LogDebug(logger.SERVER, logger.NON_ESSENTIAL, "%v -- %v", ctr, v.Conn.RemoteAddr())
+		for k,v := range server.connsMap{
+			logger.LogDebug(logger.SERVER, logger.NON_ESSENTIAL, "%v -- %v -- %v", ctr, k, v.Conn.RemoteAddr())
 			ctr++
 		}
 		server.mu.RUnlock()

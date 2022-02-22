@@ -149,47 +149,42 @@ func (worker *Worker) askForJob(){
 }
 
 func (worker *Worker) doTask(URL string){
-
-	links, err := worker.doCrawl(URL)
+ 
+	links, _ := worker.doCrawl(URL)  //if err, then website is probably incorrect, so just send empty list to master
 
 	worker.mu.Lock()
 	defer worker.mu.Unlock()
-	if err != nil {
-		//cant do current job, so discard it
 
-		logger.LogError(logger.WORKER, logger.ESSENTIAL, "Can't crawl this URL %v, discarding it....", URL)
-		worker.resetWorkerJobStatus()
-	}else{
-		//say that u finished the job
-		logger.LogInfo(logger.WORKER, logger.NON_ESSENTIAL, "Worker finished task with this url " +
-		"%v and jobNum %v", URL, worker.currentJobNum)
+	//say that u finished the job
+	logger.LogInfo(logger.WORKER, logger.NON_ESSENTIAL, "Worker finished task with this url " +
+	"%v and jobNum %v", URL, worker.currentJobNum)
 
-		worker.currentFinishedURLs = links   //set those to be finished to send them again if u cant
-		worker.jobFinishedTime = time.Now()
+	worker.currentFinishedURLs = links   //set those to be finished to send them again if u cant
+	worker.jobFinishedTime = time.Now()
 
 
-		args := &RPC.FinishedTaskArgs{
-			URL: URL,
-			JobNum: worker.currentJobNum,
-			URLs: links,
-		}
-
-		worker.mu.Unlock()
-		ok := worker.attemptSendFinishedJobToMaster(args)
-
-		if !ok{
-			//askForJobLooper thread is responsible for detecting this scenario
-			logger.LogError(logger.WORKER, logger.NON_ESSENTIAL, "Error while sending handleFinishedTasks to master")
-		}else{
-			//successfully sent jobs to master and finished tasks, now mark currentJob as false
-			logger.LogInfo(logger.WORKER, logger.NON_ESSENTIAL, "Worker successfully sent finished task with this url " +
-									"%v and jobNum %v to master", args.URL, args.JobNum)
-		}
-
-		worker.mu.Lock()
-
-		worker.resetWorkerJobStatus()
+	args := &RPC.FinishedTaskArgs{
+		URL: URL,
+		JobNum: worker.currentJobNum,
+		URLs: links,
 	}
+
+	worker.mu.Unlock()
+	ok := worker.attemptSendFinishedJobToMaster(args)
+
+	if !ok{
+		//askForJobLooper thread is responsible for detecting this scenario
+		logger.LogError(logger.WORKER, logger.NON_ESSENTIAL, "Error while sending handleFinishedTasks to master")
+	}else{
+		//successfully sent jobs to master and finished tasks, now mark currentJob as false
+		logger.LogInfo(logger.WORKER, logger.NON_ESSENTIAL, "Worker successfully sent finished task with this url " +
+								"%v and jobNum %v to master", args.URL, args.JobNum)
+	}
+
+	worker.mu.Lock()
+
+	worker.resetWorkerJobStatus()
+	
 }
 
 //

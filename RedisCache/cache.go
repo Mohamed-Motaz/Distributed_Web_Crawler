@@ -51,7 +51,8 @@ func New(cacheHost string, cachePort string) (*Cache) {
 
 //return result if present
 //else return nil
-func (cache *Cache) GetValueIfPresent(key string, depth int) [][]string{
+//re-add data to cache to increase its ttl
+func (cache *Cache) GetCachedJobIfPresent(key string, depth int, ttl time.Duration) *CachedObj{
 	data, err := cache.GetBytes(key)
 	if err != nil{
 		return nil
@@ -65,8 +66,42 @@ func (cache *Cache) GetValueIfPresent(key string, depth int) [][]string{
 		//not enough data present
 		return nil
 	}
-	return oldJob.Results[:depth]
+
+	//update cache to increase ttl
+	//only if the result in cache was larger
+	cache.Add(key, string(data), ttl)
+	return oldJob
 }
+
+//add result to cache if no result
+//with the same url and a higher depth exists
+func (cache *Cache) AddIfNoLargerResultPresent(key string, value *CachedObj, ttl time.Duration){
+	cached := cache.GetCachedJobIfPresent(key, 0, ttl)
+	if cached == nil{
+		//add to cache
+		res, err := json.Marshal(value)
+		if err != nil{
+			return
+		}
+		cache.Add(key, string(res), ttl)
+		return
+	}
+
+	//indeed present in cache
+	//now need to decide whether I need to overwrite the value written in cache
+	if value.DepthToCrawl > cached.DepthToCrawl{
+		res, err := json.Marshal(value)
+		if err != nil{
+			return
+		}
+		cache.Add(key, string(res), ttl)
+	}
+	//else
+		//depth in cache is larger
+		//nothing needs to be done
+		//since GetCachedJobIfPresent has already updated the ttl	
+}
+
 
 func (cache *Cache) Add(key string, value string, ttl time.Duration) error {
 	return cache.client.Set(cache.ctx, key, value, ttl).Err()

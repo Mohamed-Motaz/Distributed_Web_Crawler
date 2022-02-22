@@ -143,9 +143,9 @@ func New(myHost, myPort, lockServerHost, lockServerPort, mqHost, mqPort string) 
 func (master *Master) doCrawl(url string, depth int, jobId string, clientId string) {
 	//TODO clear up all the data from the previous crawl
 
-	logger.LogInfo(logger.MASTER, logger.ESSENTIAL, 
-		"Recieved a request to crawl this website %v with a depth of %v",
-		url, depth)
+	logger.LogInfo(logger.MASTER, logger.NON_ESSENTIAL, 
+		"Received a request to crawl this website %v with a depth of %v for client %v",
+		url, depth, clientId)
 
 	master.mu.Lock()
 	defer master.mu.Unlock()
@@ -291,7 +291,7 @@ func (master *Master) checkJobAvailable(reply *RPC.GetTaskReply){
 
 	//no job found, can try to move on to the next depth
 	if currentDepthFinished{
-		logger.LogMilestone(logger.MASTER, logger.NON_ESSENTIAL, "Milestone reached, depth %v has been finished", master.currentDepth)
+		logger.LogMilestone(logger.MASTER, logger.ESSENTIAL, "Milestone reached, depth %v has been finished", master.currentDepth)
 		master.currentDepth++
 		master.checkJobAvailable(reply)
 		return
@@ -361,7 +361,7 @@ func (master *Master) qPublisher() {
 				if err != nil{
 					logger.LogError(logger.MASTER, logger.ESSENTIAL, "DoneJob not published to queue with err %v", err)
 				}else{
-					logger.LogInfo(logger.MASTER, logger.ESSENTIAL, "DoneJob successfully published to queue")
+					logger.LogInfo(logger.MASTER, logger.ESSENTIAL, "DoneJob successfully published to queue for client %+v", master.clientId)
 				}
 			}
 
@@ -436,7 +436,7 @@ func (master *Master) qConsumer() {
 
 			if reply.Accepted{
 				//use data
-				logger.LogInfo(logger.MASTER, logger.ESSENTIAL, "LockServer accepted job request %v", args.JobId) 
+				logger.LogInfo(logger.MASTER, logger.ESSENTIAL, "LockServer accepted job request %v for client %+v", args.JobId, args.ClientId) 
 				newJob.Ack(false)
 				master.startJob(data.UrlToCrawl, data.DepthToCrawl, data.JobId, data.ClientId)
 				continue
@@ -444,7 +444,7 @@ func (master *Master) qConsumer() {
 
 			if reply.AlternateJob{
 				//use reply 
-				logger.LogInfo(logger.MASTER, logger.ESSENTIAL, "LockServer provided outstanding job %v instead of requested job %v", reply.JobId, args.JobId) 
+				logger.LogInfo(logger.MASTER, logger.ESSENTIAL, "LockServer provided outstanding job %v for client %v instead of requested job %v", reply.JobId, reply.ClientId, args.JobId) 
 				newJob.Nack(false, true)
 				master.startJob(reply.URL, reply.Depth, reply.JobId, reply.ClientId)
 				continue
