@@ -1,7 +1,15 @@
 version: "3.9" # optional since v1.27.0
 services:
   cache:
-
+    networks:
+      - web_crawler_network
+    image: redis:latest
+    restart: always
+    ports:
+      - 6379:6379
+    volumes:
+      - ~/docker-conf/local/redis/data/:/data
+      - ~/go/src/github.com/mohamed247/Distributed_Web_Crawler/RedisCache/redis.conf:/usr/local/etc/redis/redis.conf
   haproxy:
     # net: host
     networks:
@@ -49,6 +57,26 @@ services:
       - ~/docker-conf/rabbitmq/data/:/var/lib/rabbitmq/
       - ~/docker-conf/rabbitmq/log/:/var/log/rabbitmq
 
+  # LOCK_SERVER --------------------------------------------------
+  lock_server:
+    # network_mode: "host"
+    networks:
+      - web_crawler_network
+    depends_on:
+      - postgres
+    environment:
+      - MY_HOST=lock_server
+      - MY_PORT=9999
+
+      - DB_HOST=postgres
+      - DB_PORT=5432
+    ports:
+      - 9999:9999
+    build:
+      #    network: host
+      context: ./
+      dockerfile: ./Server/LockServer/Dockerfile
+
   client_facing_server1:
     # network_mode: "host"
     networks:
@@ -57,10 +85,14 @@ services:
       - rabbitmq
       - cache
     environment:
-      - MY_PORT=5555
       - MY_HOST=client_facing_server1
+      - MY_PORT=5555
+
       - MQ_HOST=rabbitmq
       - MQ_PORT=5672
+
+      - CACHE_HOST=cache
+      - CACHE_PORT=6379
     ports:
       - 5555:5555
     build:
@@ -75,10 +107,14 @@ services:
       - rabbitmq
       - cache
     environment:
-      - MY_PORT=5556
       - MY_HOST=client_facing_server2
+      - MY_PORT=5556
+
       - MQ_HOST=rabbitmq
       - MQ_PORT=5672
+
+      - CACHE_HOST=cache
+      - CACHE_PORT=6379
     ports:
       - 5556:5556
     build:
@@ -93,10 +129,14 @@ services:
       - rabbitmq
       - cache
     environment:
-      - MY_PORT=5557
       - MY_HOST=client_facing_server3
+      - MY_PORT=5557
+
       - MQ_HOST=rabbitmq
       - MQ_PORT=5672
+
+      - CACHE_HOST=cache
+      - CACHE_PORT=6379
     ports:
       - 5557:5557
     build:
@@ -104,24 +144,17 @@ services:
       context: ./
       dockerfile: ./clientFacingServer/Dockerfile
 
-  # LOCK_SERVER --------------------------------------------------
-  lock_server:
-    # network_mode: "host"
-    networks:
-      - web_crawler_network
-    depends_on:
-      - postgres
-    environment:
-      - MY_PORT=9999
-      - MY_HOST=lock_server
-      - DB_PORT=5432
-      - DB_HOST=postgres
-    ports:
-      - 9999:9999
-    build:
-      #    network: host
-      context: ./
-      dockerfile: ./Server/LockServer/Dockerfile
+  ######################################################################################################################################
+  #
+  #               ##########      #             #         #     ########   ############   #########    #########    ########
+  #             #                 #             #         #     #               #         #            #       #    #
+  #            #                  #             #         #     #               #         #            #       #    #
+  #           #                   #             #         #     ########        #         #########    #########    ########
+  #           #                   #             #         #           #         #         #            # #                 #
+  #             #                 #             #         #           #         #         #            #   #               #
+  #               ##########      ###########   ###########     ########        #         #########    #      #     ########
+  #
+  ######################################################################################################################################
 
   # CLUSTER 1  ---------------------------------------------------
   master1:
@@ -132,10 +165,12 @@ services:
       - rabbitmq
       - lock_server
     environment:
-      - MY_PORT=7777
       - MY_HOST=master1
-      - LOCK_SERVER_PORT=9999
+      - MY_PORT=7777
+
       - LOCK_SERVER_HOST=lock_server
+      - LOCK_SERVER_PORT=9999
+
       - MQ_HOST=rabbitmq
       - MQ_PORT=5672
     ports:
@@ -152,8 +187,8 @@ services:
     depends_on:
       - master1
     environment:
-      - MASTER_PORT=7777
       - MASTER_HOST=master1
+      - MASTER_PORT=7777
     build:
       #    network: host
       context: ./
@@ -166,8 +201,8 @@ services:
     depends_on:
       - master1
     environment:
-      - MASTER_PORT=7777
       - MASTER_HOST=master1
+      - MASTER_PORT=7777
     build:
       #    network: host
       context: ./
@@ -180,13 +215,148 @@ services:
     depends_on:
       - master1
     environment:
-      - MASTER_PORT=7777
       - MASTER_HOST=master1
-
+      - MASTER_PORT=7777
     build:
       #    network: host
       context: ./
       dockerfile: ./Server/cluster/worker/Dockerfile
+
 networks:
   web_crawler_network:
     driver: bridge
+
+  #MY LAPTOP COUDN'T HANDLE ALL THOSE CONTAINERS OPEN
+  #SO UNCOMMENT AT YOUR OWN RISK :)
+
+  # # CLUSTER 2  ---------------------------------------------------
+  # master2:
+  #   # network_mode: "host"
+  #   networks:
+  #     - web_crawler_network
+  #   depends_on:
+  #     - rabbitmq
+  #     - lock_server
+  #   environment:
+  #     - MY_HOST=master2
+  #     - MY_PORT=7778
+
+  #     - LOCK_SERVER_HOST=9999
+  #     - LOCK_SERVER_PORT=lock_server
+
+  #     - MQ_HOST=rabbitmq
+  #     - MQ_PORT=5672
+  #   ports:
+  #     - 7778:7778
+  #   build:
+  #     #    network: host
+  #     context: ./
+  #     dockerfile: ./Server/cluster/master/Dockerfile
+
+  # worker21:
+  #   # network_mode: "host"
+  #   networks:
+  #     - web_crawler_network
+  #   depends_on:
+  #     - master2
+  #   environment:
+  #     - MASTER_HOST=master2
+  #     - MASTER_PORT=7778
+  #   build:
+  #     #    network: host
+  #     context: ./
+  #     dockerfile: ./Server/cluster/worker/Dockerfile
+
+  # worker22:
+  #   # network_mode: "host"
+  #   networks:
+  #     - web_crawler_network
+  #   depends_on:
+  #     - master2
+  #   environment:
+  #     - MASTER_HOST=master2
+  #     - MASTER_PORT=7778
+  #   build:
+  #     #    network: host
+  #     context: ./
+  #     dockerfile: ./Server/cluster/worker/Dockerfile
+
+  # worker23:
+  #   # network_mode: "host"
+  #   networks:
+  #     - web_crawler_network
+  #   depends_on:
+  #     - master2
+  #   environment:
+  #     - MASTER_HOST=master2
+  #     - MASTER_PORT=7778
+  #   build:
+  #     #    network: host
+  #     context: ./
+  #     dockerfile: ./Server/cluster/worker/Dockerfile
+
+  # # CLUSTER 3  ---------------------------------------------------
+  # master3:
+  #   # network_mode: "host"
+  #   networks:
+  #     - web_crawler_network
+  #   depends_on:
+  #     - rabbitmq
+  #     - lock_server
+  #   environment:
+  #     - MY_HOST=master3
+  #     - MY_PORT=7779
+
+  #     - LOCK_SERVER_HOST=9999
+  #     - LOCK_SERVER_PORT=lock_server
+
+  #     - MQ_HOST=rabbitmq
+  #     - MQ_PORT=5672
+  #   ports:
+  #     - 7779:7779
+  #   build:
+  #     #    network: host
+  #     context: ./
+  #     dockerfile: ./Server/cluster/master/Dockerfile
+
+  # worker31:
+  #   # network_mode: "host"
+  #   networks:
+  #     - web_crawler_network
+  #   depends_on:
+  #     - master3
+  #   environment:
+  #     - MASTER_HOST=master3
+  #     - MASTER_PORT=7779
+  #   build:
+  #     #    network: host
+  #     context: ./
+  #     dockerfile: ./Server/cluster/worker/Dockerfile
+
+  # worker32:
+  #   # network_mode: "host"
+  #   networks:
+  #     - web_crawler_network
+  #   depends_on:
+  #     - master3
+  #   environment:
+  #     - MASTER_HOST=master3
+  #     - MASTER_PORT=7779
+  #   build:
+  #     #    network: host
+  #     context: ./
+  #     dockerfile: ./Server/cluster/worker/Dockerfile
+
+  # worker33:
+  #   # network_mode: "host"
+  #   networks:
+  #     - web_crawler_network
+  #   depends_on:
+  #     - master3
+  #   environment:
+  #     - MASTER_HOST=master3
+  #     - MASTER_PORT=7779
+  #   build:
+  #     #    network: host
+  #     context: ./
+  #     dockerfile: ./Server/cluster/worker/Dockerfile

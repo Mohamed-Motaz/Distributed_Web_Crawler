@@ -382,7 +382,7 @@ func (master *Master) qPublisher() {
 //
 func (master *Master) qConsumer() {
 	ch, err := master.q.Consume(mq.JOBS_QUEUE)
-	time.Sleep(2 * time.Second) //sleep for 2 seconds to await lockServer waking up
+	time.Sleep(10 * time.Second) //sleep for 2 seconds to await lockServer waking up
 
 	if err != nil{
 		logger.FailOnError(logger.MASTER, logger.ESSENTIAL, "Master can't consume jobs because with this error %v", err)
@@ -523,7 +523,7 @@ func (master *Master) attemptSendFinishedJobToLockServer() bool {
 			return true
 		}
 		ctr++
-		time.Sleep(time.Second)
+		time.Sleep(10 * time.Second)
 	}
 	return ok
 }
@@ -539,7 +539,7 @@ func (master *Master) callLockServer(rpcName string, args interface{}, reply int
 		client, err = rpc.DialHTTP("tcp", master.lockServerAddress)  //blocking
 		if err != nil{
 			logger.LogError(logger.MASTER, logger.ESSENTIAL, "Attempt number %v of dialing lockServer failed with error: %v\n", ctr,err)
-			time.Sleep(2 * time.Second)
+			time.Sleep(10 * time.Second)
 		}else{
 			successfullConnection = true
 		}

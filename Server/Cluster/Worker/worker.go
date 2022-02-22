@@ -215,7 +215,7 @@ func (worker *Worker) attemptSendFinishedJobToMaster(args *RPC.FinishedTaskArgs)
 			return true
 		}
 		ctr++
-		time.Sleep(time.Second)
+		time.Sleep(time.Second * 2)
 	}
 	return ok
 }
@@ -286,7 +286,7 @@ func (worker *Worker) callMaster(rpcName string, args interface{}, reply interfa
 		client, err = rpc.DialHTTP("tcp", worker.masterAddress)  //blocking
 		if err != nil{
 			logger.LogError(logger.WORKER, logger.ESSENTIAL, "Attempt number %v of dialing master failed with error: %v\n", ctr,err)
-			time.Sleep(2 * time.Second)
+			time.Sleep(10 * time.Second)
 		}else{
 			successfullConnection = true
 		}
@@ -304,6 +304,7 @@ func (worker *Worker) callMaster(rpcName string, args interface{}, reply interfa
 		logger.LogError(logger.WORKER, logger.ESSENTIAL, "Unable to call master with RPC with error: %v", err)
 		return false
 	}
+	logger.LogInfo(logger.WORKER, logger.ESSENTIAL, "Success dialing master")
 
 	return true
 }

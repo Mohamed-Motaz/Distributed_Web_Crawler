@@ -37,7 +37,7 @@ func New(amqpAddr string) *MQ{
 	for ctr < 3 && err != nil{
 		err = mq.connect(amqpAddr)
 		ctr++
-		time.Sleep(time.Second * 2)
+		time.Sleep(time.Second * 10)
 	}
 	
 	return mq
