@@ -29,21 +29,28 @@ The main objective of the Distributed Web Crawler is to serve as a template for 
 
 
 - ### **WebSocket Server**
-    The load balancer of choice is HaProxy. The following highlights its main functionalities:
-    - Be able to establish and maintain websocket connections between the client and the websocket servers.
-    - Handle up to 50,000 (variable) concurrent connections at a time.
-    - The main reason I chose HaProxy over Nginx is because HaProxy fits my needs as a load balancer perfectly. Nginx would be overkill, and HaProxy uses Round Robin, which in my case, makes sense, since I wan't the websocket connections to be balanced amongst all websocket servers. It also supports websockets out of the box, so it was a perfect fit.
+    The client facing servers use websockets to communicate with their clients. The following highlights its main functionalities:
+    - Responsible for establishing and mainting active websockets with the clients.
+    - Responsible for cleaning up and closing all connections that have been idle for over a (variable) amount of time.
+    - Publish jobs to the Assigned Jobs Queue if no results could be found in the cache.
+    - Consume done jobs from the Done Jobs Queue and send them over to the clients.
+    
+    Why I chose websockets:
+    - The main reason I chose websockets is well, because they are trendy! Obviously not just that, but I had 2 other choices, polling every 5 seconds or so with normal HTTP request-response, or use [Server-Sent Events](https://en.wikipedia.org/wiki/Server-sent_events#:~:text=Server%2DSent%20Events%20(SSE),client%20connection%20has%20been%20established.). Both would have been fine, but that is only because in my system, client requests usually take a few seconds up to a few minutes to complete, so polling wouldn't cause much overhead. I decided to stick with websockets though since I wanted to go with a more general solution that (in case requests actually only do take a few hundered milliseconds to be processed), and avoid having to constantly poll the server, which in some cases would actually cause more overhead than just maintaining one TCP connection over the client's lifecycle.
 
 
 - ### **Cache**
-    The load balancer of choice is HaProxy. The following highlights its main functionalities:
-    - Be able to establish and maintain websocket connections between the client and the websocket servers.
-    - Handle up to 50,000 (variable) concurrent connections at a time.
-    - The main reason I chose HaProxy over Nginx is because HaProxy fits my needs as a load balancer perfectly. Nginx would be overkill, and HaProxy uses Round Robin, which in my case, makes sense, since I wan't the websocket connections to be balanced amongst all websocket servers. It also supports websockets out of the box, so it was a perfect fit.
+    The cache of choice is Redis. The following highlights its main functionalities:
+    - Serve as a key value store, where each key has a set [TTL](https://en.wikipedia.org/wiki/Time_to_live)
+    - Each key is a url, and its value contains the depth crawled, and the crawled websites 2D list.
+    - Eg. If a client asks for "google.com", with a depth of 2, then the cache must contain "google.com" with atleast a depth of 2, so the client can be served immediately without any additional delay.
+
+    Why I chose Redis:
+    - The main reason I chose Redis is because it supports clustering and replication, (I can implement it in the future), and it seems like a fairly popular choice, so why not?
 
 
 - ### **Message Queue**
-    The load balancer of choice is HaProxy. The following highlights its main functionalities:
+    The message queue of choice is RabbitMq. The following highlights its main functionalities:
     - Be able to establish and maintain websocket connections between the client and the websocket servers.
     - Handle up to 50,000 (variable) concurrent connections at a time.
     - The main reason I chose HaProxy over Nginx is because HaProxy fits my needs as a load balancer perfectly. Nginx would be overkill, and HaProxy uses Round Robin, which in my case, makes sense, since I wan't the websocket connections to be balanced amongst all websocket servers. It also supports websockets out of the box, so it was a perfect fit.
@@ -90,7 +97,7 @@ The system is designed with fault tolerance in mind. The system is able to handl
 
 All the above components can fail, and the system keeps running without a hitch. The failures that do affect the system are:
 - Load Balancer failure: Could have a load balancer cluster to cover for the failure of a machine, and when the clients re-establish
-the connections, they use [exponential backoff](https://en.wikipedia.org/wiki/Exponential_backoff), so as not to cause a [thundering herd problem](https://en.wikipedia.org/wiki/Thundering_herd_problem).
+the connections, they should use [exponential backoff](https://en.wikipedia.org/wiki/Exponential_backoff), so as not to cause a [thundering herd problem](https://en.wikipedia.org/wiki/Thundering_herd_problem).
 - Message Queue failure: RabbitMq could be replicated and clustered, so fairly easy to deal with
 - Database failure: Could also be replicted and clustered. 
 - Lock Server failure: The one true single point of failure, where if it fails, the queues keep filling up with jobs, and the system would run out of memory and crash. The solution is also (thankfully) simple, it can be implemented on top of a [Raft cluster](https://en.wikipedia.org/wiki/Raft_(algorithm)), which should prevent the lock server from being our single point of failure. Unfortunately, that would come at a cost, latency. The raft leader now has to check that enough servers have the latest data in the logs, before confirming that a job can take place, and would thus slow down the system considerably.
