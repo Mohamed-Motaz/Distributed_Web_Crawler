@@ -1,4 +1,5 @@
 # **Distributed Web Crawler**
+![systemArchi drawio](https://user-images.githubusercontent.com/53558209/155814673-c201500d-7f48-4223-82a3-7bf9b7633190.png)
 The main objective of the Distributed Web Crawler is to serve as a template for a system than can parallelize tasks and distribute the load, be it cpu and processing load, or even network load, as is the case of this Web Crawler. The system is [**distributed**](#system-components) on multiple machines, [**highly available**](#high-availability-and-reliability), [**reliable**](#high-availability-and-reliability) and [**fault tolerant**](#fault-tolerance). 
 
 ## **Table of Contents**
@@ -51,40 +52,49 @@ The main objective of the Distributed Web Crawler is to serve as a template for 
 
 - ### **Message Queue**
     The message queue of choice is RabbitMq. The following highlights its main functionalities:
-    - Be able to establish and maintain websocket connections between the client and the websocket servers.
-    - Handle up to 50,000 (variable) concurrent connections at a time.
-    - The main reason I chose HaProxy over Nginx is because HaProxy fits my needs as a load balancer perfectly. Nginx would be overkill, and HaProxy uses Round Robin, which in my case, makes sense, since I wan't the websocket connections to be balanced amongst all websocket servers. It also supports websockets out of the box, so it was a perfect fit.
+    - Durable, so in case of a crash, "all" jobs in the queue can be restored from disk
+    - Support multiple producers and consumers
+    - Jobs Assigned Queue Producers:       Websocket Servers
+    - Jobs Assigned Queue Consumers:       Masters
+    - Done Jobs Queue Producers:           Masters
+    - Done Jobs Queue Consumers:           Websocker Servers
+   
+   Why I chose RabbitMq:
+    - The main reason I chose RabbitMq is because it (also) supports clustering and replication, (I can implement it in the future). In addition, it uses the push model, and the consumers can set a prefetch limit (which I set to 1), so that they avoid getting overwhelmed. This helps in achieving low latency and maximal performance.
 
 
 - ### **Master**
-    The load balancer of choice is HaProxy. The following highlights its main functionalities:
-    - Be able to establish and maintain websocket connections between the client and the websocket servers.
-    - Handle up to 50,000 (variable) concurrent connections at a time.
-    - The main reason I chose HaProxy over Nginx is because HaProxy fits my needs as a load balancer perfectly. Nginx would be overkill, and HaProxy uses Round Robin, which in my case, makes sense, since I wan't the websocket connections to be balanced amongst all websocket servers. It also supports websockets out of the box, so it was a perfect fit.
+    Masters are the main job consumers. The following highlights their main functionalities:
+    - Consume jobs from the Jobs Assigned Queue
+    - Ask the Lock Server for permission to start said job, and accept if the Lock Server provides them with a different job
+    - Communicate with the workers, and orchestrate the workload among them
+    - Keep track of the progress at all times, and notify the Lock Server when they are done
+    - Push done jobs to the Done Jobs Queue so that the Websocket servers can consume them and semd the results to the waiting clients.
 
 
 - ### **Worker**
-    The load balancer of choice is HaProxy. The following highlights its main functionalities:
-    - Be able to establish and maintain websocket connections between the client and the websocket servers.
-    - Handle up to 50,000 (variable) concurrent connections at a time.
-    - The main reason I chose HaProxy over Nginx is because HaProxy fits my needs as a load balancer perfectly. Nginx would be overkill, and HaProxy uses Round Robin, which in my case, makes sense, since I wan't the websocket connections to be balanced amongst all websocket servers. It also supports websockets out of the box, so it was a perfect fit.
-
+    Workers are the powerhouses of the system. They are completely stateless, and only know about their master's address. The following highlights their main functionalities:
+    - Communicate with the masters, ask for jobs, and respond with the results.
+    
 
 - ### **Lock Server**
     The load balancer of choice is HaProxy. The following highlights its main functionalities:
     - Be able to establish and maintain websocket connections between the client and the websocket servers.
     - Handle up to 50,000 (variable) concurrent connections at a time.
-    - The main reason I chose HaProxy over Nginx is because HaProxy fits my needs as a load balancer perfectly. Nginx would be overkill, and HaProxy uses Round Robin, which in my case, makes sense, since I wan't the websocket connections to be balanced amongst all websocket servers. It also supports websockets out of the box, so it was a perfect fit.
-
+    
+    Why I chose Redis:
+    - The main reason I chose Redis is because it supports clustering and replication, (I can implement it in the future), and it seems like a fairly popular choice, so why not?
 
 - ### **Database**
     The load balancer of choice is HaProxy. The following highlights its main functionalities:
     - Be able to establish and maintain websocket connections between the client and the websocket servers.
     - Handle up to 50,000 (variable) concurrent connections at a time.
-    - The main reason I chose HaProxy over Nginx is because HaProxy fits my needs as a load balancer perfectly. Nginx would be overkill, and HaProxy uses Round Robin, which in my case, makes sense, since I wan't the websocket connections to be balanced amongst all websocket servers. It also supports websockets out of the box, so it was a perfect fit.
+    
+    Why I chose Redis:
+    - The main reason I chose Redis is because it supports clustering and replication, (I can implement it in the future), and it seems like a fairly popular choice, so why not?
 
 
-## **Availability And Reliability**
+## **#High Availability And Reliability**
 - To the client, the system has really high availability. The only case where the system would be down is if all the load balancers, websocket servers, or message queues are down. Since all of this are/can be implemented in clusters, the system is indeed highly available.
 - The system is highly reliable and consistent, since it doesn't rely on some kind of consensus among all of its masters, or workers, or any of the componenents. Each component is completely stateless, and the end result is a reliable system that would deliver the same result every time a user adds a job.
 
