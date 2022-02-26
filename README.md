@@ -16,6 +16,10 @@ The main objective of the Distributed Web Crawler is to serve as a template for 
 - [**Availability And Reliability**](#high-availability-and-reliability)
 - [**Fault Tolerance**](#fault-tolerance)
 - [**Further Optimizations**](#further-optimizations)
+    * [WebSocket Optimizations](#websocket-optimizations)
+    * [Load Balancing Optimizations](#load-balancing-optimizations)
+    * [General Optimizations](#general-optimizations)
+
 - [**Faults (Yup, and many of them)**](#faults)
 - [**How To Run**](#how-to-run)
 
@@ -112,8 +116,29 @@ the connections, they should use [exponential backoff](https://en.wikipedia.org/
 - Lock Server failure: The one true single point of failure, where if it fails, the queues keep filling up with jobs, and the system would run out of memory and crash. The solution is also (thankfully) simple, it can be implemented on top of a [Raft cluster](https://en.wikipedia.org/wiki/Raft_(algorithm)), which should prevent the lock server from being our single point of failure. Unfortunately, that would come at a cost, latency. The raft leader now has to check that enough servers have the latest data in the logs, before confirming that a job can take place, and would thus slow down the system considerably.
 
 **Note**: The reason I decided to defer the implementation of all of the above solutions is because well, they are aren't really implementations. The solutions are fairly easy to implement, and the goal of this project is to focus more on the coding and design part of things.
+**Another Note**: Long timeouts between containers are only due to docker-compose's depends-on only waiting for the container to start, not to be ready to accept connections. In a real production system, this would probably be less of an issue.
+
 
 ## **Further Optimizations**
+- ### **WebSocket Optimizations**
+- The Problem: We start a websocket connection for each client. Each connection has read and write buffers that are 4kb each due to the net/http package, and the [gorilla package](#https://github.com/gorilla/websocket) also has its own additional buffers when upgrading to websockets. Furthermore, each goroutine’s stack is 4kb, but can vary according to the os. So starting a goroutine for each client would cost about 20kb, not to mention any of the internal structs and data I associate with each client goroutine in my app. This would never scale well, especially since connections are idle 99% of the time, and are just sitting on buffers that can’t be garbage collected, and so the memory usage increases beyond control. RAM becomes a bottleneck.
+
+- The Solution: An optimization to be made on the websocket’s side of things is to use a lower level websockets api such as https://github.com/gobwas/ws in addition to dealing with the kernel from the application level using a system call like [epoll](https://man7.org/linux/man-pages/man7/epoll.7.html). This would mean that we would have a thread responsible for the async epoll call, and it only spawns new goroutines when the kernel signals that any of the file descriptors it was listening on does indeed have IO activity. So in total, we now only have as many goroutines as we do active connections, rather than a goroutine for each connection. (Will probably implement later)
+
+- My Solution: A slight optimization I decided on is to create one goroutine per connection, which is for the reader, and to only create one for the writer whenever there is a need to send data. This means that I have to keep a central map mapping each client’s Id with a pointer to its websocket connection object. I have to use locks, but since this map would be very read heavy, and with very little writes (only in case of adding a connection or removing one) a read/write lock would be suitable. I also need to make sure that I close all connections after a specific idle timeout, to make sure the map doesn’t increase in size too much. 
+
+- ### **Load Balancing Optimizations**
+
+- The Problem: It is quite tricky with websockets since they are stateful, not just a quick request response situation like HTTP requests are. The load balancer (if layer 7) would have to maintain 2 connections from both the client to the load balancer, and from the load balancer to the server. So if I do manage to build an extremely optimized and efficient server that can handle 100k or even a million connections, the load balancer would become a bottleneck since it has to maintain twice that number, per each server that it is balancing the load to.
+- The Solution:  There is an ingenious idea and it goes like this. We don’t even use a load balancer! [This article explains it beautifully](https://dzone.com/articles/load-balancing-of-websocket-connections#:~:text=By%20default%2C%20a%20single%20server,number%20of%20TCP%20ports%20available.) TLDR; Don't use a load balancer, build your own. Clients first ask it for an Ip Address to connect it. It then contacts all the websocket servers, and asks them which of them is able to handle one more connection. It then sends the reply back to the client. GENIUS!
+
+- ### **General Optimizations**
+
+- If a result for a job is partially present in cache (url requested with depth of 3, but only depth of 2 is present), don't discard the cache and start over, rather build upon the existing results. Easy to implement, probably will implement it soon.
+- Decrease all field names' length in cache, urlToCrawl -> url. Also super easy, too lazy to do it.
+- Might as well decrease all field names' size, to decrease the message size over the wire. 
+- Use normal HTTP requests between system components, and use [Protobuf](https://developers.google.com/protocol-buffers) to compress the data and decrease the "internal" network load.
+
 
 ## **Faults**
 The system is not perfect, and listed below are many faults which I should solve in the near future, if I'm not too lazy that is.
