@@ -130,7 +130,7 @@ the connections, they should use [exponential backoff](https://en.wikipedia.org/
 - ### **Load Balancing Optimizations**
 
 - The Problem: It is quite tricky with websockets since they are stateful, not just a quick request response situation like HTTP requests are. The load balancer (if layer 7) would have to maintain 2 connections from both the client to the load balancer, and from the load balancer to the server. So if I do manage to build an extremely optimized and efficient server that can handle 100k or even a million connections, the load balancer would become a bottleneck since it has to maintain twice that number, per each server that it is balancing the load to.
-- The Solution:  There is an ingenious idea and it goes like this. We don’t even use a load balancer! [This article explains it beautifully](https://dzone.com/articles/load-balancing-of-websocket-connections#:~:text=By%20default%2C%20a%20single%20server,number%20of%20TCP%20ports%20available.) TLDR; Don't use a load balancer, build your own. Clients first ask it for an Ip Address to connect it. It then contacts all the websocket servers, and asks them which of them is able to handle one more connection. It then sends the reply back to the client. GENIUS!
+- The Solution:  There is an ingenious idea and it goes like this. We don’t even use a load balancer! [This article explains it beautifully](https://dzone.com/articles/load-balancing-of-websocket-connections). TLDR; Don't use a load balancer, build your own. Clients first ask it for an Ip Address to connect it. It then contacts all the websocket servers, and asks them which of them is able to handle one more connection. It then sends the reply back to the client. GENIUS!
 
 - ### **General Optimizations**
 
@@ -150,3 +150,76 @@ The system is not perfect, and listed below are many faults which I should solve
 - Solution: Rather than rely on the database for all queries, keep an in-memory cache of sorts, and respond to the master using this cache. Start a thread periodically every (variable) amount of seconds that pushes all the changes to the database, but the most important thing is to not rely on database queries for every single decision.
 
 ## **How To Run**
+**Note**: You need to have Go installed
+
+- To start the whole system:
+```
+cd /Distributed_Web_Crawler
+docker-compose up --build --force-recreate
+```
+- To stop the whole system:
+```
+cd /Distributed_Web_Crawler
+docker-compose stop
+docker-compose down --rmi local
+```
+- To create the web crawler's network:
+```
+docker network create Distributed_Web_Crawler
+```
+- To build a worker's image, run the container, then remove it afterwards:
+```
+cd /Distributed_Web_Crawler
+docker build -f Server/Cluster/Worker/Dockerfile -t worker .
+docker run --net=host --name workerContainer worker
+docker rm -f workerContainer
+```
+- To build a master's image, run the container, then remove it afterwards:
+```
+cd /Distributed_Web_Crawler
+docker build -f Server/Cluster/Master/Dockerfile -t master .
+docker run --net=host --name masterContainer master
+docker rm -f masterContainer
+```
+- To build a lockServer's image, run the container, then remove it afterwards:
+```
+cd /Distributed_Web_Crawler
+docker build -f Server/LockServer/Dockerfile -t lock_server .
+docker run --net=host --name lockServerContainer lock_server
+docker rm -f lockServerContainer
+```
+- To build a clientFacingServer's image, run the container, then remove it afterwards:
+```
+cd /Distributed_Web_Crawler
+docker build -f ClientFacingServer/Dockerfile -t client_facing_server .
+docker run --net=host --name clientFacingServerContainer client_facing_server
+docker rm -f clientFacingServerContainer
+```
+- To run a master:
+```
+cd /Distributed_Web_Crawler/server/cluster/master
+MY_PORT=7777 LOCK_SERVER_PORT=9999 MQ_PORT=5672 go run -race master.go
+```
+- To run a worker:
+```
+cd /Distributed_Web_Crawler/server/cluster/worker
+MASTER_PORT=8888 go run -race worker.go
+```
+- To run a lock server:
+```
+cd /Distributed_Web_Crawler/server/lockserver
+MY_PORT=9999 DB_PORT=5432 go run -race lockServer.go
+```
+- To run a client-facing websocket server:
+```
+cd /Distributed_Web_Crawler/ClientFacingServer
+MY_PORT=5555 MQ_PORT=5672 go run -race server.go
+```
+- To run RabbitMq:
+```
+docker run  --name rabbitmq-container -p 5672:5672 -p 15672:15672  rabbitmq:3-management
+```
+- To run PostgreSql:
+```
+docker run --name postgres-container -p 5432:5432 -e POSTGRES_PASSWORD=password postgres
+```
