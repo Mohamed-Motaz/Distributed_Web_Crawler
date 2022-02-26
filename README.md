@@ -16,6 +16,7 @@ The main objective of the Distributed Web Crawler is to serve as a template for 
 - [**Availability And Reliability**](#high-availability-and-reliability)
 - [**Fault Tolerance**](#fault-tolerance)
 - [**Further Optimizations**](#further-optimizations)
+- [**Faults (Yup, and many of them)**](#faults)
 - [**How To Run**](#how-to-run)
 
 ## **System Components**
@@ -78,21 +79,19 @@ The main objective of the Distributed Web Crawler is to serve as a template for 
     
 
 - ### **Lock Server**
-    The load balancer of choice is HaProxy. The following highlights its main functionalities:
-    - Be able to establish and maintain websocket connections between the client and the websocket servers.
-    - Handle up to 50,000 (variable) concurrent connections at a time.
-    
-    Why I chose Redis:
-    - The main reason I chose Redis is because it supports clustering and replication, (I can implement it in the future), and it seems like a fairly popular choice, so why not?
+    The Lock Server is the server tasked with persisting all system jobs in the database, so that in case of failure, all jobs can still be recovered. To avoid being a single point of failure, which it is, it should be implemented on top of a [Raft cluster](https://en.wikipedia.org/wiki/Raft_(algorithm)). The following highlights its main functionalities:
+    - Make quick decisions on whether a master should start a job, or if there is any higher priority job to be given.
+    - Keep track of all current jobs, and re-assign any jobs that are delayed beyond a (variable) time.
+    - Persist all jobs information to the database.
+    - Be extremely performant, since every single jobs needs to pass by the Lock Server before it can be processed.
+
 
 - ### **Database**
-    The load balancer of choice is HaProxy. The following highlights its main functionalities:
-    - Be able to establish and maintain websocket connections between the client and the websocket servers.
-    - Handle up to 50,000 (variable) concurrent connections at a time.
+    The database of choice is PostgreSQL. The following highlights its main functionalities:
+    - Persist data in case masters die, thats it. I bet you didn't expect much to be honest.
     
-    Why I chose Redis:
-    - The main reason I chose Redis is because it supports clustering and replication, (I can implement it in the future), and it seems like a fairly popular choice, so why not?
-
+    Why I chose PostgreSQL:
+    - The main reason I chose PostgreSQL is because it supports clustering (not natively) and replication, (I can implement it in the future). But I mean, everything supports clustering and replication nowadays, so I really just wanted to try it out.
 
 ## **#High Availability And Reliability**
 - To the client, the system has really high availability. The only case where the system would be down is if all the load balancers, websocket servers, or message queues are down. Since all of this are/can be implemented in clusters, the system is indeed highly available.
@@ -116,5 +115,13 @@ the connections, they should use [exponential backoff](https://en.wikipedia.org/
 
 ## **Further Optimizations**
 
+## **Faults**
+The system is not perfect, and listed below are many faults which I should solve in the near future, if I'm not too lazy that is.
+- Problem: A user can send a job that takes quite a bit of time, multiple times in succession. This causes the masters to become stuck while working on them. Thus, the Lock Server decides that since the masters are late, their jobs should be reassigned. It then reassignes the job to a master, even though there is absolutely no reason to. This would cripple the whole system
+- Solution: 1- Prevent users from sending multiple requests at a time, only one per client at a time. DDos is still an issue though. 2- Allow the Lock Server access the cache as well. Now, if a master is late, before reassigning the late job, it firsts checks if the job results are in cached, and doesn't reassign them, since it understands they are already done. 3- Allow a channel of communication between Lock Server and Master where a Lock Server can inform a stuck master to stop processing a job if the results are already present and in cache.
+- Problem: Lock Server reassigns jobs after a specific amount of time, not heartbeats between it and the masters. 
+- Solution: Communicate via heartbeats with Master, and decide if Master is stuck and is actually not making any progress, before taking the decision to re-assign the pending jobs.
+- Problem: Lock Server is a huge bottleneck, since all jobs have to pass by it before they can get processed. In my system, it doesn't make a difference since each job takes a minimum of atleast 5 seconds, but in a different system, it will definetly be a bottleneck.
+- Solution: Rather than rely on the database for all queries, keep an in-memory cache of sorts, and respond to the master using this cache. Start a thread periodically every (variable) amount of seconds that pushes all the changes to the database, but the most important thing is to not rely on database queries for every single decision.
 
 ## **How To Run**
