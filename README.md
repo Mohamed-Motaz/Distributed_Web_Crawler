@@ -169,10 +169,14 @@ The system is not perfect, and listed below are many faults which I should defin
 - Solution: Communicate via heartbeats with Master, and decide if Master is stuck and is actually not making any progress, before taking the decision to re-assign the pending jobs.
 - Problem: Lock Server is a huge bottleneck, since all jobs have to pass by it before they can get processed. In my system, it doesn't make a difference since each job takes a minimum of atleast 5 seconds, but in a different system, it will definetly be a bottleneck.
 - Solution: Rather than rely on the database for all queries, keep an in-memory cache of sorts, and respond to the master using this cache. Start a thread periodically every (variable) amount of seconds that pushes all the changes to the database, but the most important thing is to not rely on database queries for every single decision.
+- Problem: A client establishes a websocket connection with websocket server S1. The server pushes the job into the Assigned Jobs Queue. By the time the message processing is done and the message is pushed to the Done Jobs Queue, S1 had died. The client may have or may have not re-established a connection with a different server. The problem lies in the fact that before a websocket server pulls a job from the Done Jobs Queue, it has to check if the client has an active websocket connection with it. If it doesn't, the message is pushed back into the queue so another websocket server picks it up and sends it the appropriate client. The issue is now apparent. If a client's connection has been terminated, his job would stay alive forever in the Done Jobs Queue, and these messages would build up and consume a considerable amount of memory.
+- Solution: Each message should have a TTL in the message queue, and if it has passed this TTL, it is then discarded. In addition, websocket servers should be able to communicate with each other, and if a server gets a job for a client that isn't currently connected to him, it can then forward the job to the other servers to check to which server this client belongs to. There is also the option of every server storing his current clients in the cache cluster, where all servers can see each other's current active connections, so they can forward the job to the appropriate server. If no such client is found, the message is immediately discarded.
 
+**Note**: 
+- You need to have Go installed
+- RabbitMq behaves weirdly in docker compose, and not all messages do make it into the queues. Try it out without docker-compose if you do face those issues
 
 ## **How To Run**
-**Note**: You need to have Go installed
 
 - To start the whole system:
 ```
