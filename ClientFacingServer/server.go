@@ -200,6 +200,7 @@ func (server *Server) qConsumer() {
 			if ok{
 				//send results to client over conn
 				go server.writer(client.Conn, data)
+				doneJob.Ack(false)
 				logger.LogInfo(logger.SERVER, logger.ESSENTIAL, "Job sent to client %+v\n%+v", client.Conn.RemoteAddr(), data) 
 
 			}else{
@@ -207,7 +208,6 @@ func (server *Server) qConsumer() {
 				doneJob.Nack(false, true)  
 			} 
 
-			doneJob.Ack(false)
 
 			//add  job to cache
 
