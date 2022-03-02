@@ -3,6 +3,7 @@
 The main objective of the Distributed Web Crawler is to serve as a template for a system that can parallelize tasks and distribute the load, be it cpu and processing load, or even network load, as is the case for this Web Crawler. The system is [**distributed**](#system-components) on multiple machines, [**highly available**](#high-availability-and-reliability), [**reliable**](#high-availability-and-reliability) and [**fault tolerant**](#fault-tolerance). 
 
 ## **Table of Contents**
+- [**A Journey Across the System**](#a-journey-across-the-system)
 - [**System Components**](#system-components)
     * [Load Balancer](#load-balancer)
     * [WebSocket Server](#websocket-server)
@@ -22,6 +23,23 @@ The main objective of the Distributed Web Crawler is to serve as a template for 
 
 - [**Faults (Yup, and many of them)**](#faults)
 - [**How To Run**](#how-to-run)
+
+
+## **A Journey Across the System**
+ This section is meant to establish the journey of a job request from the moment the client requests it, up to the moment the results are delivered back to the client. The journey is as follows.
+ - The client attempts to establishe a websocket with the one of the websocket servers.
+ - The connection passes through the load balancer which then chooses one of the websocket servers to forward the websocket connection to, using the Round Robin algorithm.
+ - The client sends a job request, containing the url to crawl, and the depth required to crawl.
+ - After the websocket server assigned to said client receives the request, it first checks if a similar request is present in cache, and if there is, the result is sent back to the client immediately.
+ - Assuming no results were present in cache, the websocket server then pushes the job to the Assigned Jobs Queue.
+ - One of the multiple Masters then pulls the job from the queue.
+ - Before starting to process the job, the Master first asks the Lock Server for permission to start the job.
+ - If the Lock Server doesn't have any jobs with a higher priority (ie. late jobs with dead masters), it allows the master to start processing said job.
+ - The Master starts coordinating its assigned Workers, in order to finish the job as quickly as possible.
+ - After all the results have been collected, the Master then pushes the job into the Done Jobs Queue.
+ - One of the websocket servers then pulls the job from the Done Jobs Queue, and if the job belongs to a client of said websocket server, the websocket server adds the results to cache.
+ - Afterwards, the results are sent back to the appropriate client.
+
 
 ## **System Components**
 
@@ -151,6 +169,7 @@ The system is not perfect, and listed below are many faults which I should defin
 - Solution: Communicate via heartbeats with Master, and decide if Master is stuck and is actually not making any progress, before taking the decision to re-assign the pending jobs.
 - Problem: Lock Server is a huge bottleneck, since all jobs have to pass by it before they can get processed. In my system, it doesn't make a difference since each job takes a minimum of atleast 5 seconds, but in a different system, it will definetly be a bottleneck.
 - Solution: Rather than rely on the database for all queries, keep an in-memory cache of sorts, and respond to the master using this cache. Start a thread periodically every (variable) amount of seconds that pushes all the changes to the database, but the most important thing is to not rely on database queries for every single decision.
+
 
 ## **How To Run**
 **Note**: You need to have Go installed
