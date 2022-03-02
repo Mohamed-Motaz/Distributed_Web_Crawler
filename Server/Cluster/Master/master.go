@@ -361,7 +361,7 @@ func (master *Master) qPublisher() {
 				if err != nil{
 					logger.LogError(logger.MASTER, logger.ESSENTIAL, "DoneJob not published to queue with err %v", err)
 				}else{
-					logger.LogInfo(logger.MASTER, logger.ESSENTIAL, "DoneJob successfully published to queue for client %+v", master.clientId)
+					logger.LogInfo(logger.MASTER, logger.ESSENTIAL, "DoneJob %+v successfully published to done jobs queue for client %+v", URLsList,master.clientId)
 				}
 			}
 
@@ -381,7 +381,7 @@ func (master *Master) qPublisher() {
 // start a thread that waits on a job from the message queue
 //
 func (master *Master) qConsumer() {
-	ch, err := master.q.Consume(mq.JOBS_QUEUE)
+	ch, err := master.q.Consume(mq.JOBS_ASSIGNED_QUEUE)
 	time.Sleep(10 * time.Second) //sleep for 2 seconds to await lockServer waking up
 
 	if err != nil{
@@ -563,11 +563,11 @@ func (master *Master) callLockServer(rpcName string, args interface{}, reply int
 
 func(master *Master) addJobsForTesting(){
 	json := `{"clientId":"Client1","jobId":"JOB1","urlToCrawl":"https://www.google.com/","depthToCrawl":2}`
-	master.q.Publish(mq.JOBS_QUEUE, []byte(json))
+	master.q.Publish(mq.JOBS_ASSIGNED_QUEUE, []byte(json))
 	json = `{"clientId":"Client2","jobId":"JOB2","urlToCrawl":"https://www.facebook.com/","depthToCrawl":2}`
-	master.q.Publish(mq.JOBS_QUEUE, []byte(json))
+	master.q.Publish(mq.JOBS_ASSIGNED_QUEUE, []byte(json))
 	json = `{"clientId":"Client3","jobId":"JOB3","urlToCrawl":"https://www.instagram.com/","depthToCrawl":2}`
-	master.q.Publish(mq.JOBS_QUEUE, []byte(json))
+	master.q.Publish(mq.JOBS_ASSIGNED_QUEUE, []byte(json))
 	master.q.Close()
 	os.Exit(1)
 }

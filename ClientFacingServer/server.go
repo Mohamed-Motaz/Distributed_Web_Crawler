@@ -179,7 +179,7 @@ func (server *Server) qConsumer() {
 			
 			err := json.Unmarshal(body, data)
 			if err != nil {
-				logger.LogError(logger.SERVER, logger.ESSENTIAL, "Unable to unMarshal job with error %v\nWill discard it", err) 
+				logger.LogError(logger.SERVER, logger.ESSENTIAL, "Unable to unMarshal job %v with error %v\nWill discard it", string(body),err) 
 				doneJob.Ack(false)
 				continue
 			}
@@ -301,11 +301,11 @@ func (server *Server) reader(c *cl.Client){
 			return
 		}
 		//message is viable and isnt present in cache, can now send it over to mq
-		err = server.q.Publish(mq.JOBS_QUEUE, toPublish.Bytes())
+		err = server.q.Publish(mq.JOBS_ASSIGNED_QUEUE, toPublish.Bytes())
 		if err != nil{
-			logger.LogError(logger.SERVER, logger.ESSENTIAL, "New job not published to jobs queue with err %v", err)
+			logger.LogError(logger.SERVER, logger.ESSENTIAL, "New job not published to jobs assigned queue with err %v", err)
 		}else{
-			logger.LogInfo(logger.SERVER, logger.ESSENTIAL, "New job successfully published to jobs queue")
+			logger.LogInfo(logger.SERVER, logger.ESSENTIAL, "New job successfully published to jobs assigned queue")
 		}
 		
 	}

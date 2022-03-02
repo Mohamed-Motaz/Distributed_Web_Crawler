@@ -1,7 +1,7 @@
 package MessageQueue
 
 //queue names
-const JOBS_QUEUE = "jobs"
+const JOBS_ASSIGNED_QUEUE = "jobsAssigned"
 const DONE_JOBS_QUEUE = "doneJobs"
 
 

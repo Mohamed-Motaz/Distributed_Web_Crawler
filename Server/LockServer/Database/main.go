@@ -48,8 +48,8 @@ func (db *DBWrapper) Close(){
 func connect(myHost, myPort string) *gorm.DB{
 
 	dsn := fmt.Sprintf(
-		"user=%v password=%v host=%v port=%v database=%v sslmode=disable",
-		user, password, myHost, myPort, dbname)
+		"user=%v password=%v host=%v port=%v sslmode=disable",
+		user, password, myHost, myPort)
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil{
