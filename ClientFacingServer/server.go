@@ -203,7 +203,8 @@ func (server *Server) qConsumer() {
 				logger.LogInfo(logger.SERVER, logger.ESSENTIAL, "Job sent to client %+v\n%+v", client.Conn.RemoteAddr(), data) 
 
 			}else{
-				logger.LogError(logger.SERVER, logger.ESSENTIAL, "Job %+v done, but connection with client has been terminated", data) 
+				logger.LogError(logger.SERVER, logger.ESSENTIAL, "Connection with client may have been terminated", data) 
+				doneJob.Nack(false, true)  
 			} 
 
 			doneJob.Ack(false)
