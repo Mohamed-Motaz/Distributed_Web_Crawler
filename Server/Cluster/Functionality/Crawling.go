@@ -17,7 +17,7 @@ func GetURLsSlice(url string) ([]string, error) {
 		logger.LogError(logger.CRAWLING, logger.ESSENTIAL, "Error while getting the url %v", err)
 		return nil, err
 	}
-
+        defer resp.Body.Close()
 	linksMap := make(map[string]int)
 
 	tokens := html.NewTokenizer(resp.Body)
