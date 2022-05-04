@@ -23,6 +23,7 @@ The main objective of the Distributed Web Crawler is to serve as a template for 
 
 - [**Faults (Yup, and many of them)**](#faults)
 - [**How To Run**](#how-to-run)
+- [**Try Out A Request**](#try-out-a-request)
 
 
 ## **A Journey Across the System**
@@ -251,4 +252,27 @@ docker run  --name rabbitmq-container -p 5672:5672 -p 15672:15672  rabbitmq:3-ma
 - To run PostgreSql:
 ```
 docker run --name postgres-container -p 5432:5432 -e POSTGRES_PASSWORD=password postgres
+```
+
+
+## **Try Out A Request**
+
+- To try out a request, just start the docker cluster, and establish a websocket connection like below. Have fun!
+```
+let ws = new WebSocket("ws://127.0.0.1:5555/");
+ws.onmessage = (m) => {
+  console.log("Received message");
+  console.log(m.data);
+};
+ws.onopen = function (e) {
+  console.log("[open] Connection established");
+  console.log("Sending to server");
+  ws.send(
+    JSON.stringify({
+      jobId: "JOB1",
+      urlToCrawl: "https://www.google.com/",
+      depthToCrawl: 2,
+    })
+  );
+};
 ```
