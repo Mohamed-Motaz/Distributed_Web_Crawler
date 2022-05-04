@@ -191,6 +191,7 @@ docker-compose stop
 docker-compose rm -f 
 docker-compose down --rmi local
 ```
+**Extras**
 - To create the web crawler's network:
 ```
 docker network create Distributed_Web_Crawler
